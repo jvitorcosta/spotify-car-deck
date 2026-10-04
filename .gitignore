@@ -11,6 +11,9 @@ src/config.h
 # Brainstorm visual-companion scratch (if placed in-tree)
 .superpowers/
 
+# Local dev toolchain wrapper (machine-specific paths)
+.devtools/
+
 # OS
 Thumbs.db
 .DS_Store
