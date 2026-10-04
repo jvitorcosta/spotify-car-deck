@@ -4,8 +4,11 @@
 #include "pins.h"
 #include "net/wifi.h"
 #include "spotify/auth.h"
+#include "spotify/client.h"
+#include "app_state.h"
 
 TFT_eSPI tft = TFT_eSPI();
+AppState g_state{};
 
 void setup() {
     Serial.begin(115200);
@@ -27,9 +30,21 @@ void setup() {
         spauth::runSetupPortalIfNeeded();
         tft.fillScreen(TFT_BLACK);
         tft.drawString("Auth OK", 10, 10, 2);
+        spclient::begin();
     } else {
         tft.drawString("WiFi FAILED", 10, 40, 2);
     }
 }
 
-void loop() { net::loop(); delay(50); }
+void loop() {
+    net::loop();
+    static uint32_t lastPoll = 0;
+    if (millis() - lastPoll >= 4000) {
+        lastPoll = millis();
+        bool changed = spclient::poll(g_state);
+        Serial.printf("[poll] status=%d track=%s %u/%u changed=%d\n",
+            (int)g_state.status, g_state.trackName,
+            g_state.progressMs, g_state.durationMs, changed);
+    }
+    delay(20);
+}
