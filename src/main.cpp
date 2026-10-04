@@ -6,6 +6,8 @@
 #include "spotify/auth.h"
 #include "spotify/client.h"
 #include "app_state.h"
+#include "ui/theme.h"
+#include "ui/screen_now.h"
 
 TFT_eSPI tft = TFT_eSPI();
 AppState g_state{};
@@ -34,6 +36,17 @@ void setup() {
     } else {
         tft.drawString("WiFi FAILED", 10, 40, 2);
     }
+
+    // Task 9: render the static GBA deck once with dummy data so the layout
+    // can be eyeballed. Replaces the live poll's redraw until Task 10.
+    strcpy(g_state.trackName, "Mr. Blue Sky");
+    strcpy(g_state.artist, "Electric Light Orchestra");
+    strcpy(g_state.context, "Discover Weekly");
+    strcpy(g_state.pokeName, "Lapras");
+    strcpy(g_state.deviceName, "Living Room");
+    g_state.progressMs = 102000; g_state.durationMs = 238000;
+    g_state.isPlaying = true; g_state.popularity = 72;
+    ui::drawNow(tft, g_state, theme::typeColor("water"));
 }
 
 void loop() {
@@ -45,6 +58,8 @@ void loop() {
         Serial.printf("[poll] status=%d track=%s %u/%u changed=%d\n",
             (int)g_state.status, g_state.trackName,
             g_state.progressMs, g_state.durationMs, changed);
+        // Task 9: dummy static render only — live redraw wired in Task 10.
+        (void)changed;
     }
     delay(20);
 }
