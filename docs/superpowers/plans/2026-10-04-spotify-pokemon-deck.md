@@ -131,11 +131,16 @@ build_src_filter = -<*> +<ui/theme.cpp> +<util/interp.cpp> +<util/lrc.cpp>
 build_flags = -std=gnu++17 -D UNIT_TEST
 ```
 
-> Toolchain note (this machine): build/test via the gitignored wrapper
-> `.devtools/pio.ps1` (sets PATH to MinGW g++, `PLATFORMIO_CORE_DIR=D:\.platformio`,
-> and `PYTHONIOENCODING=utf-8`). Run firmware builds with
-> `powershell -ExecutionPolicy Bypass -File .devtools\pio.ps1 run -e esp32dev` and
-> native tests with `... .devtools\pio.ps1 test -e native`.
+> **Toolchain note (this machine) — READ BEFORE RUNNING ANYTHING:**
+> - **Firmware compile:** `powershell -ExecutionPolicy Bypass -File .devtools\pio.ps1 run -e esp32dev`
+>   (wrapper sets MinGW on PATH, `PLATFORMIO_CORE_DIR=D:\.platformio`, `PYTHONIOENCODING=utf-8`).
+> - **Native unit tests:** PlatformIO's `pio test -e native` runner is broken here
+>   ("Nothing to build"). Instead compile+run each Unity test directly with g++ via:
+>   `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 <test.cpp> <module.cpp ...>`
+>   e.g. `.devtools\ntest.ps1 test\test_theme\test_theme.cpp src\ui\theme.cpp`
+>   Exit code 0 and `OK` = pass.
+> - **Every Unity test file MUST define** `void setUp() {}` and `void tearDown() {}`
+>   (Unity links against them). They are included in each test block below.
 
 > Note: if the display shows inverted colors or a pixel offset after flashing, swap `-D ILI9341_2_DRIVER=1` for `-D ILI9341_DRIVER=1` and re-flash. This is the one CYD variant quirk; the verification step below catches it.
 
@@ -277,6 +282,9 @@ git commit -m "Scaffold PlatformIO project and bring up CYD display + touch"
 #include <unity.h>
 #include "../../src/ui/theme.h"
 
+void setUp() {}
+void tearDown() {}
+
 void test_known_type_returns_type_color() {
     TEST_ASSERT_EQUAL_UINT16(0x6B0D, theme::typeColor("water")); // GBA blue
     TEST_ASSERT_EQUAL_UINT16(0xA9A5, theme::typeColor("grass")); // GBA green
@@ -388,6 +396,9 @@ git commit -m "Add GBA theme palette and tested type->color map"
 #include <unity.h>
 #include "../../src/util/interp.h"
 
+void setUp() {}
+void tearDown() {}
+
 void test_playing_advances() {
     TEST_ASSERT_EQUAL_UINT32(5000, interp::currentProgressMs(3000, 200000, true, 2000));
 }
@@ -468,6 +479,9 @@ git commit -m "Add tested progress interpolation helper"
 ```cpp
 #include <unity.h>
 #include "../../src/util/lrc.h"
+
+void setUp() {}
+void tearDown() {}
 
 void test_parses_timestamped_lines() {
     auto v = lrc::parse("[00:01.00]hello\n[00:03.50]world\n");
@@ -2020,6 +2034,9 @@ repurposed to a small name/type nameplate (keep `pokeName` + type badge).
 ```cpp
 #include <unity.h>
 #include "../../src/util/interp.h"
+
+void setUp() {}
+void tearDown() {}
 
 void test_walk_start() {   // at 0% the sprite sits at the left edge (+ half sprite)
     TEST_ASSERT_EQUAL_INT(100 + 20, interp::walkX(0.0f, 100, 200, 40));
