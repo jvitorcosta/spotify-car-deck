@@ -54,4 +54,16 @@ bool poll(AppState& st) {
     }
     return false;
 }
+
+void togglePlay(bool currentlyPlaying) {
+    if (!sp) return;
+    if (currentlyPlaying) sp->pause(); else sp->play();
+}
+void next() { if (sp) sp->nextTrack(); }
+void prev() { if (sp) sp->previousTrack(); }
+void setVolume(int pct) {
+    if (!sp) return;
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    sp->setVolume(pct);
+}
 }
