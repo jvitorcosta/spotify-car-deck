@@ -18,6 +18,7 @@ car head unit via CarPlay, speaker, etc.) through the Spotify Web API.
 - Display rich now-playing info in a cohesive GBA Pokémon style
 - Control playback: play/pause, previous, next, volume, (seek optional later)
 - Show a random Pokémon per play, with name and type; the type tints the UI accent
+- Show **synced lyrics** (karaoke-style) on demand via a LYRICS button, with a plain-text fallback
 - Work reliably in the car, drawing internet from the iPhone's Personal Hotspot
 - Coexist with Apple CarPlay with no conflict
 - Keep secrets out of version control
@@ -28,7 +29,6 @@ car head unit via CarPlay, speaker, etc.) through the Spotify Web API.
 - Multitouch / pinch gestures (resistive panel is single-touch)
 - Playlist browsing / search / library management (v1 is a *deck*, not a full client)
 - Multi-user / account switching
-- Lyrics
 
 ## 4. Hardware
 
@@ -54,6 +54,23 @@ car head unit via CarPlay, speaker, etc.) through the Spotify Web API.
   control endpoints `play`, `pause`, `next`, `previous`, `volume`).
 - Auth: OAuth Authorization Code flow → long-lived **refresh token** reused by the
   device. Access tokens refreshed silently.
+
+## 5.1 Lyrics (LRCLIB)
+
+Spotify's own lyrics (Musixmatch) are **not** exposed by the Web API, so lyrics come
+from **LRCLIB** (`lrclib.net`) — a free, open, no-API-key service.
+
+- **Query** by track name + artist + album + duration (all already available from the
+  now-playing response) → `GET /api/get`.
+- **Synced first, plain fallback:** prefer `syncedLyrics` (LRC format with timestamps);
+  if absent, use `plainLyrics`; if neither, show an in-theme **"No lyrics found"** state.
+- **Synced playback:** LRC timestamps + the progress we already track drive line
+  highlighting/auto-scroll — karaoke-style, no extra polling.
+- **Trigger:** a **LYRICS button** on the deck toggles to the lyrics screen and back.
+- **Size:** a full song's lyrics is a few KB — fits in RAM; parsed with ArduinoJson.
+- **Font requirement:** the pixel font must include an **extended Latin charset**
+  (accented characters) so Portuguese/other lyrics render correctly.
+- **Caching:** optional — cache the current track's lyrics in RAM; re-fetch on track change.
 
 ## 6. Connectivity & Car Context
 
@@ -115,9 +132,12 @@ src/
     cache.*       — microSD cache for sprites (and optionally album art)
   pokemon/
     pokeapi.*     — pick random #1-1025, fetch sprite + name + type
+  lyrics/
+    lrclib.*      — fetch + parse LRCLIB lyrics (synced LRC or plain)
   ui/
-    theme.*       — GBA palette, type→color map, pixel font
+    theme.*       — GBA palette, type→color map, extended-charset pixel font
     screen_now.*  — the now-playing deck layout
+    screen_lyrics.*— lyrics view (synced highlight/scroll + plain fallback)
     widgets.*     — panels, HP bar, buttons
   input/touch.*   — touch read, calibration, button hit-testing
   app_state.*     — current track, pokemon, playback state (single source of truth)
@@ -139,7 +159,13 @@ src/
 - **Right column:** track title; artist; album · release year · explicit flag;
   the **playlist/context** it's playing from; an **HP-bar progress** with elapsed/total
   time and a reskinned **"CP"** stat (= Spotify popularity, 0–100); then the control row.
-- **Control row (finger-sized):** previous, play/pause, next, volume.
+- **Control row (finger-sized):** previous, play/pause, next, volume, and a **LYRICS**
+button that toggles to the lyrics screen.
+
+**Lyrics screen:** keeps the top bar (with a back/close target); main area shows the
+lyrics. Synced mode auto-scrolls and highlights the current line in time with playback;
+plain mode is a scrollable block; missing lyrics show an in-theme "No lyrics found"
+message. Pixel font uses an extended Latin charset so accented lyrics render correctly.
 
 **Pokémon mechanic:** a **fresh random Pokémon from #1–1025 each time a play starts**.
 Sprites are the classic ~96×96 PokéAPI front sprites. Name + type shown; type sets
@@ -169,7 +195,7 @@ screens, each in-theme.
   committed.
 - Scopes limited to what's needed: `user-read-playback-state`,
   `user-modify-playback-state`, `user-read-currently-playing`.
-- No telemetry; the device talks only to Spotify and the sprite CDN.
+- No telemetry; the device talks only to Spotify, the sprite CDN, and LRCLIB.
 
 ## 12. Testing Strategy
 
@@ -189,7 +215,9 @@ screens, each in-theme.
 5. **Album art** — fetch + JPEG decode + display.
 6. **Pokémon** — random pick + PNG sprite + name + type-tinted accent + SD cache.
 7. **Controls** — play/pause/skip/volume via touch.
-8. **Polish** — offline states, reconnect/roam handling, transitions, calibration.
+8. **Lyrics** — LYRICS button → lyrics screen; LRCLIB fetch; synced highlight/scroll with
+   plain + "not found" fallbacks; extended-charset font.
+9. **Polish** — offline states, reconnect/roam handling, transitions, calibration.
 
 ## 14. Open Items / Future (post-v1)
 
