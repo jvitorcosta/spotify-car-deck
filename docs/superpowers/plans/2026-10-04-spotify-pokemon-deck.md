@@ -1983,6 +1983,251 @@ git commit -m "Polish: offline states, flicker-free redraw, playlist name, calib
 
 ---
 
+## Task 16: Walking-Pokémon progress bar (bob/step fake-walk)
+
+Builds on Task 12 (sprite fetch) and Task 15 (dirty-region redraw). **Supersedes** the
+static Pokémon-box render from Task 9 and the plain HP-fill from Tasks 9/15: the song's
+Pokémon now walks along a wide progress "route" bar. The lower-left Pokémon box is
+repurposed to a small name/type nameplate (keep `pokeName` + type badge).
+
+**Files:**
+- Modify: `src/util/interp.h`, `src/util/interp.cpp` (add `walkX`)
+- Create: `test/test_native/test_walk.cpp`
+- Modify: `src/images/png.h`, `src/images/png.cpp` (decode to a downscaled RAM buffer)
+- Modify: `src/ui/screen_now.h`, `src/ui/screen_now.cpp` (route bar + `drawWalker`)
+- Modify: `src/main.cpp` (animate at ~8 fps; decode walk sprite once per track)
+
+**Interfaces:**
+- Produces:
+  - `int interp::walkX(float frac, int barX, int barW, int spriteW);` — leading-edge x
+    for the sprite center, clamped so the sprite stays within `[barX, barX+barW]`.
+  - `namespace img { bool loadWalkSprite(const char* url, int dex, int outW, int outH); const uint16_t* walkBuffer(); int walkW(); int walkH(); bool walkReady(); }` — fetch/cache PNG (as Task 12), decode, nearest-neighbor downscale to `outW×outH` into a persistent static RGB565 buffer + a parallel transparency mask.
+  - `void ui::drawRoute(TFT_eSPI&, int x,int y,int w,int h, float frac);` — draws the route bar fill/track.
+  - `void ui::drawWalker(TFT_eSPI&, int cx,int cy, bool mirror, int bob);` — blits the current walk sprite centered at `(cx,cy)` with optional horizontal mirror and vertical `bob` offset, skipping transparent pixels.
+
+- [ ] **Step 1: Add failing test `test/test_native/test_walk.cpp`**
+
+```cpp
+#include <unity.h>
+#include "../../src/util/interp.h"
+
+void test_walk_start() {   // at 0% the sprite sits at the left edge (+ half sprite)
+    TEST_ASSERT_EQUAL_INT(100 + 20, interp::walkX(0.0f, 100, 200, 40));
+}
+void test_walk_mid() {
+    TEST_ASSERT_EQUAL_INT(100 + 100, interp::walkX(0.5f, 100, 200, 40));
+}
+void test_walk_end_clamps() {  // at 100% stays inside the bar (right edge - half sprite)
+    TEST_ASSERT_EQUAL_INT(100 + 200 - 20, interp::walkX(1.0f, 100, 200, 40));
+}
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_walk_start);
+    RUN_TEST(test_walk_mid);
+    RUN_TEST(test_walk_end_clamps);
+    return UNITY_END();
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `pio test -e native -f test_walk`
+Expected: FAIL — `walkX` undefined.
+
+- [ ] **Step 3: Add `walkX` to `src/util/interp.h`**
+
+```cpp
+int walkX(float frac, int barX, int barW, int spriteW);
+```
+
+- [ ] **Step 4: Add `walkX` to `src/util/interp.cpp`**
+
+```cpp
+int walkX(float frac, int barX, int barW, int spriteW) {
+    if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+    int half = spriteW / 2;
+    int lo = barX + half;
+    int hi = barX + barW - half;
+    int x = barX + (int)(frac * barW);
+    if (x < lo) x = lo;
+    if (x > hi) x = hi;
+    return x;
+}
+```
+
+- [ ] **Step 5: Run to verify it passes**
+
+Run: `pio test -e native`
+Expected: PASS (theme + interp + lrc + walk suites).
+
+- [ ] **Step 6: Commit the pure helper**
+
+```bash
+git add src/util/interp.h src/util/interp.cpp test/test_native/test_walk.cpp
+git commit -m "Add tested walkX helper for Pokemon-on-progress-bar position"
+```
+
+- [ ] **Step 7: Add downscaled walk-sprite loader to `src/images/png.h`**
+
+```cpp
+namespace img {
+bool loadWalkSprite(const char* url, int dex, int outW, int outH); // decode+downscale once
+const uint16_t* walkBuffer();
+const uint8_t* walkMask();   // 1 byte per pixel: 1=opaque, 0=transparent
+int walkW(); int walkH();
+bool walkReady();
+}
+```
+
+- [ ] **Step 8: Add the loader to `src/images/png.cpp`**
+
+```cpp
+// --- walk sprite state (persists for the current song) ---
+static uint16_t g_walk[48*48];
+static uint8_t  g_walkMask[48*48];
+static int g_walkW = 0, g_walkH = 0;
+static bool g_walkReady = false;
+
+// full-size decode scratch (96x96 max) reused transiently
+static uint16_t g_full[96*96];
+static uint8_t  g_fullMask[96*96];
+static int g_fullW = 0, g_fullH = 0;
+
+static void pngFullDraw(PNGDRAW* d) {
+    uint16_t line[96];
+    png.getLineAsRGB565(d, line, PNG_RGB565_BIG_ENDIAN, 0x0000);
+    uint8_t mask[96];
+    png.getAlphaMask(d, mask, 1);                 // 1 bit/pixel alpha -> here 1 byte each
+    for (int i = 0; i < d->iWidth && i < 96; ++i) {
+        g_full[d->y*96 + i] = line[i];
+        g_fullMask[d->y*96 + i] = mask[i] ? 1 : 0;
+    }
+    g_fullW = d->iWidth; g_fullH = d->y + 1;
+}
+
+bool loadWalkSprite(const char* url, int dex, int outW, int outH) {
+    g_walkReady = false;
+    size_t n = 0; uint8_t* data = nullptr;
+    // (reuse Task 12 load-from-cache-or-download block to fill `data`,`n`)
+    // ... identical acquisition code as drawSprite ...
+    if (!data) return false;
+
+    if (png.openRAM(data, n, pngFullDraw) != PNG_SUCCESS) { free(data); return false; }
+    g_fullW = png.getWidth(); g_fullH = png.getHeight();
+    png.decode(nullptr, 0); png.close(); free(data);
+
+    // nearest-neighbor downscale g_full (g_fullW x g_fullH) -> g_walk (outW x outH)
+    if (outW > 48) outW = 48; if (outH > 48) outH = 48;
+    for (int y = 0; y < outH; ++y) {
+        int sy = y * g_fullH / outH;
+        for (int x = 0; x < outW; ++x) {
+            int sx = x * g_fullW / outW;
+            g_walk[y*outW + x]     = g_full[sy*96 + sx];
+            g_walkMask[y*outW + x] = g_fullMask[sy*96 + sx];
+        }
+    }
+    g_walkW = outW; g_walkH = outH; g_walkReady = true;
+    return true;
+}
+const uint16_t* walkBuffer() { return g_walk; }
+const uint8_t*  walkMask()   { return g_walkMask; }
+int walkW() { return g_walkW; } int walkH() { return g_walkH; }
+bool walkReady() { return g_walkReady; }
+```
+
+> Memory: `g_full` 96×96×(2+1)=~27 KB transient + `g_walk` 48×48×3=~7 KB persistent. Fine without PSRAM. If `getAlphaMask` signature differs in the pinned PNGdec, treat pure-black (0x0000) as the transparent key instead (sprites are on transparent bg → black after RGB565 convert); set mask = `line[i] != 0x0000`.
+
+- [ ] **Step 9: Add route + walker draw to `src/ui/screen_now.*`**
+
+```cpp
+// screen_now.h
+void drawRoute(TFT_eSPI& t, int x, int y, int w, int h, float frac);
+void drawWalker(TFT_eSPI& t, int cx, int cy, bool mirror, int bob);
+```
+```cpp
+// screen_now.cpp
+#include "../images/png.h"
+void drawRoute(TFT_eSPI& t, int x, int y, int w, int h, float frac) {
+    if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+    t.fillRect(x, y, w, h, 0x2124);
+    t.drawRect(x, y, w, h, theme::GBA_NAVY);
+    t.fillRect(x+2, y+2, (int)((w-4)*frac), h-4, theme::HP_GREEN);
+}
+void drawWalker(TFT_eSPI& t, int cx, int cy, bool mirror, int bob) {
+    if (!img::walkReady()) return;
+    const uint16_t* b = img::walkBuffer(); const uint8_t* m = img::walkMask();
+    int w = img::walkW(), h = img::walkH();
+    int x0 = cx - w/2, y0 = cy - h + bob;      // feet rest on cy
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            int sx = mirror ? (w-1-x) : x;
+            if (m[y*w + sx]) t.drawPixel(x0+x, y0+y, b[y*w + sx]);
+        }
+}
+```
+
+- [ ] **Step 10: Reduce `drawNow` to a wide route + nameplate**
+
+In `drawNow`, remove the right-column HP panel and the lower-left static-sprite reliance; add a full-width route panel near the bottom (above the controls) and keep a small nameplate for `pokeName` + type color:
+
+```cpp
+    // progress route (wide), above the control row
+    panel(t, 8, 150, 304, 48);
+    char tbuf[40];
+    snprintf(tbuf, sizeof(tbuf), "%u:%02u / %u:%02u   CP %d",
+        st.progressMs/60000, (st.progressMs/1000)%60,
+        st.durationMs/60000, (st.durationMs/1000)%60, st.popularity);
+    t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
+    t.drawString(tbuf, 16, 154, 2);
+    float frac = st.durationMs ? (float)st.progressMs/st.durationMs : 0;
+    drawRoute(t, 16, 184, 288, 10, frac);      // the walker rides this (drawn by main)
+    // nameplate (left, under album art)
+    t.setTextColor(accent, 0x6ADC);
+    t.drawString(st.pokeName[0]?st.pokeName:"", 8, 134, 2);
+```
+
+- [ ] **Step 11: Animate in `src/main.cpp`**
+
+On track change, load the walk sprite once; animate the walker over the route each frame.
+
+```cpp
+        if (changed) {
+            pokeapi::pickRandom(g_state);
+            img::loadWalkSprite(g_state.pokeSpriteUrl, g_state.pokedexNum, 40, 40);
+        }
+```
+
+In the redraw (walk needs ~8 fps; repaint only the route strip):
+
+```cpp
+    if (g_screen == Screen::Now && millis() - lastWalk >= 120) {
+        lastWalk = millis();
+        static int step = 0; step++;
+        float frac = view.durationMs ? (float)view.progressMs/view.durationMs : 0;
+        ui::drawRoute(tft, 16, 184, 288, 10, frac);   // repaint strip (erases old walker)
+        int wx = interp::walkX(frac, 16, 288, img::walkW());
+        int bob = (step % 2) ? 0 : 2;                 // bob up/down
+        bool mirror = (step / 3) % 2;                 // flip every few frames = "step"
+        ui::drawWalker(tft, wx, 184, mirror, bob);
+    }
+```
+
+Add a `static uint32_t lastWalk = 0;` and `#include "util/interp.h"` (already included).
+
+- [ ] **Step 12: Build, flash, observe**
+
+Run: `pio run -e esp32dev -t upload`
+Expected: the current song's Pokémon stands on the progress bar and **walks forward** as the song plays (bobbing + mirroring so it looks like stepping), reaching the right edge at the end of the track. New song → new random Pokémon walking. No flicker outside the bar strip; no per-frame network/decode.
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add src/images/png.h src/images/png.cpp src/ui/screen_now.h src/ui/screen_now.cpp src/main.cpp
+git commit -m "Add walking-Pokemon progress bar (downscaled sprite, bob/step anim)"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
@@ -1991,6 +2236,7 @@ git commit -m "Polish: offline states, flicker-free redraw, playlist name, calib
 - Now-playing metadata (track/artist/album/year/explicit/context/device/shuffle/repeat/volume/popularity→CP) → Task 7 (parse) + Task 9/15 (display). *Partial:* release year + explicit flag are parsed-if-present but not yet placed on screen — covered by the info panel in Task 9; added as a display line is optional polish (noted). Shuffle/repeat icons are stored but drawn as device chip only; acceptable for v1, listed in spec §9 as top-bar icons — **gap flagged below.**
 - Playback controls (play/pause/next/prev/volume) → Task 8 + Task 13. ✅
 - Random Pokémon #1–1025 per play + name + type + type-accent + sprite + SD cache → Task 12. ✅
+- Walking-Pokémon progress bar (bob/step fake-walk, downscaled sprite, ~8 fps, rides fraction) → Task 16. ✅
 - Lyrics (LRCLIB, synced + plain + not-found, button, extended charset) → Task 14 (+ font note). ✅
 - Car/connectivity: multi-network + roam → Task 5; offline mode → Task 15; hotspot is config-only. ✅
 - One-time OAuth + NVS refresh token + scopes → Task 6. ✅

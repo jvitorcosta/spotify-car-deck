@@ -157,8 +157,10 @@ src/
 - **Left column:** album cover (real art) on top; Pokémon box below it with the
   sprite, name, and a type badge.
 - **Right column:** track title; artist; album · release year · explicit flag;
-  the **playlist/context** it's playing from; an **HP-bar progress** with elapsed/total
-  time and a reskinned **"CP"** stat (= Spotify popularity, 0–100); then the control row.
+  the **playlist/context** it's playing from; a reskinned **"CP"** stat (= Spotify
+  popularity, 0–100); then the control row.
+- **Progress "route" bar:** a wide HP-style bar that doubles as a path the current
+  song's **Pokémon walks along** (see mechanic below), with elapsed/total time.
 - **Control row (finger-sized):** previous, play/pause, next, volume, and a **LYRICS**
 button that toggles to the lyrics screen.
 
@@ -170,6 +172,15 @@ message. Pixel font uses an extended Latin charset so accented lyrics render cor
 **Pokémon mechanic:** a **fresh random Pokémon from #1–1025 each time a play starts**.
 Sprites are the classic ~96×96 PokéAPI front sprites. Name + type shown; type sets
 the accent color. Sprites cached to SD after first fetch.
+
+**Walking-progress animation** (inspired by the JetBrains "Pokémon Progress" plugin):
+the song's Pokémon **walks along the progress bar**, positioned at
+`barStart + fraction × barWidth`, so it advances with the song. The walk is a cheap
+**bob/step fake-walk** — the static sprite (downscaled once per song to ~40 px into a
+small RAM buffer) bobs 1–2 px vertically and mirrors horizontally every few frames to
+suggest walking. No extra assets, no per-frame network or decode. Animation runs at
+~8 fps by repainting only the bar region. The IDE plugin uses bundled multi-frame
+overworld sprites; we approximate that look with the single sprite we already have.
 
 **Offline/edge states:** "connecting", "no signal / tunnel", and "nothing playing"
 screens, each in-theme.
