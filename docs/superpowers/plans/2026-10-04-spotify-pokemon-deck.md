@@ -51,11 +51,11 @@ src/
   input/touch.h / touch.cpp    — touch read, calibration map, hit-testing
   util/interp.h / interp.cpp   — progress interpolation (PURE, tested)
   util/lrc.h / lrc.cpp         — LRC parse + current-line lookup (PURE, tested)
-test/
-  test_native/                 — Unity host tests for util/* and ui/theme
-    test_theme.cpp
-    test_interp.cpp
-    test_lrc.cpp
+test/                          — one folder per Unity suite (each has its own main())
+  test_theme/test_theme.cpp
+  test_interp/test_interp.cpp
+  test_lrc/test_lrc.cpp
+  test_walk/test_walk.cpp
 ```
 
 **Testable-on-host (pure, no Arduino.h):** `ui/theme.*`, `util/interp.*`, `util/lrc.*`.
@@ -92,11 +92,11 @@ monitor_filters = esp32_exception_decoder
 board_build.partitions = huge_app.csv
 lib_deps =
     bodmer/TFT_eSPI@2.5.43
-    paulstoffregen/XPT2046_Touchscreen@1.4
-    bblanchon/ArduinoJson@7.2.1
+    https://github.com/PaulStoffregen/XPT2046_Touchscreen.git#f956c5d
+    bblanchon/ArduinoJson@7.4.3
     bodmer/TJpg_Decoder@1.1.0
-    bitbank2/PNGdec@1.0.3
-    https://github.com/witnessmenow/spotify-api-arduino.git#2d1b1e0
+    bitbank2/PNGdec@1.1.6
+    https://github.com/witnessmenow/spotify-api-arduino.git#6261278
 build_flags =
     -std=gnu++17
     -D CORE_DEBUG_LEVEL=3
@@ -124,8 +124,18 @@ build_unflags = -std=gnu++11
 [env:native]
 platform = native
 test_framework = unity
+; Compile ONLY the pure-logic modules under native (exclude Arduino-dependent src).
+; Add new pure .cpp files here as they are created.
+test_build_src = yes
+build_src_filter = -<*> +<ui/theme.cpp> +<util/interp.cpp> +<util/lrc.cpp>
 build_flags = -std=gnu++17 -D UNIT_TEST
 ```
+
+> Toolchain note (this machine): build/test via the gitignored wrapper
+> `.devtools/pio.ps1` (sets PATH to MinGW g++, `PLATFORMIO_CORE_DIR=D:\.platformio`,
+> and `PYTHONIOENCODING=utf-8`). Run firmware builds with
+> `powershell -ExecutionPolicy Bypass -File .devtools\pio.ps1 run -e esp32dev` and
+> native tests with `... .devtools\pio.ps1 test -e native`.
 
 > Note: if the display shows inverted colors or a pixel offset after flashing, swap `-D ILI9341_2_DRIVER=1` for `-D ILI9341_DRIVER=1` and re-flash. This is the one CYD variant quirk; the verification step below catches it.
 
@@ -254,14 +264,14 @@ git commit -m "Scaffold PlatformIO project and bring up CYD display + touch"
 **Files:**
 - Create: `src/ui/theme.h`
 - Create: `src/ui/theme.cpp`
-- Create: `test/test_native/test_theme.cpp`
+- Create: `test/test_theme/test_theme.cpp`
 
 **Interfaces:**
 - Produces:
   - `namespace theme { uint16_t typeColor(const char* type); }` — returns an RGB565 accent for a PokéAPI type name (lowercase, e.g. `"water"`); unknown/null → `GBA_NAVY`.
   - GBA palette constants: `GBA_CREAM=0xF73A`, `GBA_NAVY=0x218A`, `GBA_GOLD=0xD605`, `HP_GREEN=0x4605`, `POKE_RED=0xE006` (RGB565).
 
-- [ ] **Step 1: Write the failing test `test/test_native/test_theme.cpp`**
+- [ ] **Step 1: Write the failing test `test/test_theme/test_theme.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -352,7 +362,7 @@ Expected: PASS — 4/4 tests.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/ui/theme.h src/ui/theme.cpp test/test_native/test_theme.cpp
+git add src/ui/theme.h src/ui/theme.cpp test/test_theme/test_theme.cpp
 git commit -m "Add GBA theme palette and tested type->color map"
 ```
 
@@ -363,7 +373,7 @@ git commit -m "Add GBA theme palette and tested type->color map"
 **Files:**
 - Create: `src/util/interp.h`
 - Create: `src/util/interp.cpp`
-- Create: `test/test_native/test_interp.cpp`
+- Create: `test/test_interp/test_interp.cpp`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -372,7 +382,7 @@ git commit -m "Add GBA theme palette and tested type->color map"
   - If paused, returns `lastProgressMs` unchanged.
   - Never exceeds `durationMs`.
 
-- [ ] **Step 1: Write the failing test `test/test_native/test_interp.cpp`**
+- [ ] **Step 1: Write the failing test `test/test_interp/test_interp.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -434,7 +444,7 @@ Expected: PASS (theme + interp suites).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/util/interp.h src/util/interp.cpp test/test_native/test_interp.cpp
+git add src/util/interp.h src/util/interp.cpp test/test_interp/test_interp.cpp
 git commit -m "Add tested progress interpolation helper"
 ```
 
@@ -445,7 +455,7 @@ git commit -m "Add tested progress interpolation helper"
 **Files:**
 - Create: `src/util/lrc.h`
 - Create: `src/util/lrc.cpp`
-- Create: `test/test_native/test_lrc.cpp`
+- Create: `test/test_lrc/test_lrc.cpp`
 
 **Interfaces:**
 - Produces:
@@ -453,7 +463,7 @@ git commit -m "Add tested progress interpolation helper"
   - `std::vector<lrc::LrcLine> lrc::parse(const std::string& synced);` — parses `[mm:ss.xx]text` lines, sorted by time, skips malformed lines.
   - `int lrc::currentIndex(const std::vector<LrcLine>& lines, uint32_t posMs);` — index of the last line whose `tMs <= posMs`; `-1` before the first.
 
-- [ ] **Step 1: Write the failing test `test/test_native/test_lrc.cpp`**
+- [ ] **Step 1: Write the failing test `test/test_lrc/test_lrc.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -570,7 +580,7 @@ Expected: PASS (theme + interp + lrc suites).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/util/lrc.h src/util/lrc.cpp test/test_native/test_lrc.cpp
+git add src/util/lrc.h src/util/lrc.cpp test/test_lrc/test_lrc.cpp
 git commit -m "Add tested LRC synced-lyrics parser"
 ```
 
@@ -1992,7 +2002,7 @@ repurposed to a small name/type nameplate (keep `pokeName` + type badge).
 
 **Files:**
 - Modify: `src/util/interp.h`, `src/util/interp.cpp` (add `walkX`)
-- Create: `test/test_native/test_walk.cpp`
+- Create: `test/test_walk/test_walk.cpp`
 - Modify: `src/images/png.h`, `src/images/png.cpp` (decode to a downscaled RAM buffer)
 - Modify: `src/ui/screen_now.h`, `src/ui/screen_now.cpp` (route bar + `drawWalker`)
 - Modify: `src/main.cpp` (animate at ~8 fps; decode walk sprite once per track)
@@ -2005,7 +2015,7 @@ repurposed to a small name/type nameplate (keep `pokeName` + type badge).
   - `void ui::drawRoute(TFT_eSPI&, int x,int y,int w,int h, float frac);` — draws the route bar fill/track.
   - `void ui::drawWalker(TFT_eSPI&, int cx,int cy, bool mirror, int bob);` — blits the current walk sprite centered at `(cx,cy)` with optional horizontal mirror and vertical `bob` offset, skipping transparent pixels.
 
-- [ ] **Step 1: Add failing test `test/test_native/test_walk.cpp`**
+- [ ] **Step 1: Add failing test `test/test_walk/test_walk.cpp`**
 
 ```cpp
 #include <unity.h>
@@ -2063,7 +2073,7 @@ Expected: PASS (theme + interp + lrc + walk suites).
 - [ ] **Step 6: Commit the pure helper**
 
 ```bash
-git add src/util/interp.h src/util/interp.cpp test/test_native/test_walk.cpp
+git add src/util/interp.h src/util/interp.cpp test/test_walk/test_walk.cpp
 git commit -m "Add tested walkX helper for Pokemon-on-progress-bar position"
 ```
 
