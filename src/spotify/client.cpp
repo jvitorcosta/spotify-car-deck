@@ -36,7 +36,12 @@ void begin() {
     client.setInsecure();
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;   // PC-obtained token from config.h
-    sp = new SpotifyArduino(client, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, rt.c_str());
+    // NOTE: SpotifyArduino's ctor calls setRefreshToken(), which reads its _refreshToken
+    // member before initializing it. Heap `new` leaves that member as garbage (not NULL),
+    // so its `strlen(_refreshToken)` dereferences garbage and crashes. A function-local
+    // static has zero-initialized storage, so _refreshToken starts as NULL -> safe.
+    static SpotifyArduino instance(client, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, rt.c_str());
+    sp = &instance;
     if (sp->refreshAccessToken()) Serial.println("[spotify] access token OK");
     else Serial.println("[spotify] refreshAccessToken FAILED");
 }

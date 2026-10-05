@@ -54,6 +54,9 @@ static bool exchangeCode(const String& code) {
 
 bool runSetupPortalIfNeeded() {
     if (!loadRefreshToken().isEmpty()) return true;
+    // A PC-obtained refresh token in config.h (Spotify's loopback-only redirect rule)
+    // makes the on-device portal unnecessary — skip it.
+    if (strlen(SPOTIFY_REFRESH_TOKEN) > 0) return true;
 
     WebServer server(80);
     bool done = false;
