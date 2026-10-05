@@ -12,7 +12,9 @@ static const int WIFI_NETWORK_COUNT = 2;
 // Spotify developer app (https://developer.spotify.com/dashboard)
 #define SPOTIFY_CLIENT_ID     "your_client_id"
 #define SPOTIFY_CLIENT_SECRET "your_client_secret"
-// Redirect URI you register in the dashboard. Use the device IP form:
-//   http://<device-ip>/callback   (printed to serial on first boot)
-#define SPOTIFY_REDIRECT_URI  "http://ESP_IP/callback"
+// Spotify requires http only for the loopback address. Register this EXACT URI in
+// your app dashboard (Settings -> Redirect URIs). Used by the PC auth helper.
+#define SPOTIFY_REDIRECT_URI  "http://127.0.0.1:8888/callback"
+// One-time refresh token, obtained on the PC via .devtools/spotify_auth.py.
+#define SPOTIFY_REFRESH_TOKEN ""
 #define SPOTIFY_MARKET        "BR"

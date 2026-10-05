@@ -35,6 +35,7 @@ static void onPlaying(CurrentlyPlaying cp) {
 void begin() {
     client.setInsecure();
     String rt = spauth::loadRefreshToken();
+    if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;   // PC-obtained token from config.h
     sp = new SpotifyArduino(client, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, rt.c_str());
     if (sp->refreshAccessToken()) Serial.println("[spotify] access token OK");
     else Serial.println("[spotify] refreshAccessToken FAILED");
