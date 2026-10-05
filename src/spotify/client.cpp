@@ -19,6 +19,8 @@ static void copyStr(char* dst, const char* src, size_t n) {
 
 static void onPlaying(CurrentlyPlaying cp) {
     AppState& st = *target;
+    // Store ORIGINAL (UTF-8) names so LRCLIB lyric matching works for accented
+    // titles; accents are folded to ASCII at display time instead.
     if (strncmp(st.trackName, cp.trackName, sizeof(st.trackName)) != 0) trackChanged = true;
     copyStr(st.trackName, cp.trackName, sizeof(st.trackName));
     copyStr(st.artist, cp.numArtists > 0 ? cp.artists[0].artistName : nullptr, sizeof(st.artist));
@@ -103,7 +105,7 @@ static void resolveContext(const char* uri, char* out, size_t n) {
     if (rc == 200) {
         JsonDocument d;
         if (!deserializeJson(d, https.getString()) && d["name"].is<const char*>())
-            strncpy(out, d["name"], n - 1);
+            strncpy(out, d["name"], n - 1);          // raw; folded at display time
         else strncpy(out, type.c_str(), n - 1);
     } else {
         strncpy(out, type.c_str(), n - 1);

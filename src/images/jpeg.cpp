@@ -109,8 +109,11 @@ bool drawAlbumArt(TFT_eSPI& t, int x, int y, int boxW, int boxH) {
     // buffer, then nearest-neighbor resample it to EXACTLY fill the box. Covers
     // are square and the box is square, so this shows the whole cover with no
     // crop and no margin.
+    // Decode small (<=~104px) so the resample buffer is tiny (~20KB) and malloc
+    // reliably succeeds -> every cover fills the box consistently (previously a
+    // failed 45KB alloc silently fell back to the smaller fit-with-margin path).
     uint8_t scale = 1;
-    while (jw / (scale * 2) >= boxW && jh / (scale * 2) >= boxH && scale < 8) scale <<= 1;
+    while ((jw / scale > 104 || jh / scale > 104) && scale < 8) scale <<= 1;
     int sw = jw / scale, sh = jh / scale;
 
     bool prevSwap = t.getSwapBytes();

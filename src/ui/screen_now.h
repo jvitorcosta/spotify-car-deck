@@ -10,4 +10,7 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent);
 // Repaints just the HP/time panel. Called by drawNow and by the live redraw
 // between polls so the two never drift apart.
 void drawProgressRegion(TFT_eSPI& t, const AppState& st);
+// Draws the current synced lyric line in the area under the HP bar (empty if
+// there is no synced line). Called each redraw with the line for the moment.
+void drawLyricArea(TFT_eSPI& t, const char* currentLine);
 }

@@ -13,9 +13,22 @@
 #include "images/png.h"
 #include "images/cache.h"
 #include "pokemon/pokeapi.h"
+#include "lyrics/lrclib.h"
+#include "util/lrc.h"
+#include <vector>
 
 TFT_eSPI tft = TFT_eSPI();
 AppState g_state{};
+
+static lyricsvc::Result g_lyrics{lyricsvc::Kind::None, ""};
+static std::vector<lrc::LrcLine> g_lrcLines;   // parsed when synced lyrics exist
+
+// Current synced lyric line for a playback position ("" if none).
+static const char* currentLyric(uint32_t posMs) {
+    if (g_lrcLines.empty()) return "";
+    int idx = lrc::currentIndex(g_lrcLines, posMs);
+    return (idx >= 0) ? g_lrcLines[idx].text.c_str() : "";
+}
 
 void setup() {
     Serial.begin(115200);
@@ -69,10 +82,19 @@ void loop() {
 
         img::cacheAlbumArt(g_state.albumArtUrl);
 
+        // Fetch synced lyrics for this track (uses original accented names).
+        g_lyrics = lyricsvc::fetch(g_state);
+        g_lrcLines = (g_lyrics.kind == lyricsvc::Kind::Synced)
+                         ? lrc::parse(g_lyrics.text)
+                         : std::vector<lrc::LrcLine>{};
+        Serial.printf("[lyrics] kind=%d lines=%u\n",
+                      (int)g_lyrics.kind, (unsigned)g_lrcLines.size());
+
         uint16_t accent = theme::typeColor(g_state.pokeType);
         ui::drawNow(tft, view, accent);
-        img::drawAlbumArt(tft, 11, 31, 98, 98);
-        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 176);
+        img::drawAlbumArt(tft, 11, 29, 98, 98);
+        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 185);
+        ui::drawLyricArea(tft, currentLyric(view.progressMs));
 
         strcpy(lastTrack, g_state.trackName);
     } else {
@@ -80,6 +102,7 @@ void loop() {
         if (millis() - lastDraw >= 250) {   // ~4 fps redraw is plenty
             lastDraw = millis();
             ui::drawProgressRegion(tft, view);   // shared with drawNow() — single source
+            ui::drawLyricArea(tft, currentLyric(view.progressMs));
         }
     }
     delay(10);

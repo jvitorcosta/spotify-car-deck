@@ -19,17 +19,19 @@ bool pickRandom(AppState& st) {
         HTTPClient https;
         if (!https.begin(client, url)) continue;
         int rc = https.GET();
-        if (rc != 200) { https.end(); continue; }
+        if (rc != 200) { Serial.printf("[poke] GET rc=%d (retry)\n", rc); https.end(); continue; }
 
-        // Filter: only pull `name` and the first type's name out of the (large)
-        // PokeAPI response, so ArduinoJson never materializes the full payload.
+        // Read the full body (getString de-chunks; parsing the raw getStream()
+        // on a chunked response silently yields an empty document). Then filter
+        // down to just name + first type so the DOC stays tiny.
+        String body = https.getString();
+        https.end();
         JsonDocument filter;
         filter["name"] = true;
         filter["types"][0]["type"]["name"] = true;
         JsonDocument doc;
         DeserializationError err =
-            deserializeJson(doc, https.getStream(), DeserializationOption::Filter(filter));
-        https.end();
+            deserializeJson(doc, body, DeserializationOption::Filter(filter));
         if (err) { Serial.printf("[poke] json err %s (retry)\n", err.c_str()); continue; }
 
         const char* nm = doc["name"] | "";
