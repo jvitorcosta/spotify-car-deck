@@ -59,10 +59,14 @@ void setup() {
 
 void loop() {
     net::loop();
-    static uint32_t lastPoll = 0;
+    static uint32_t lastPoll = 0, lastPlayer = 0;
     if (millis() - lastPoll >= 4000) {
         lastPoll = millis();
         spclient::poll(g_state);
+    }
+    if (millis() - lastPlayer >= 12000) {   // device/shuffle/repeat/volume change rarely
+        lastPlayer = millis();
+        spclient::pollPlayerDetails(g_state);
     }
     // interpolate progress for a smooth bar between polls
     AppState view = g_state;
@@ -70,11 +74,22 @@ void loop() {
         g_state.progressMs, g_state.durationMs, g_state.isPlaying,
         millis() - g_state.lastPollMs);
 
-    // Dirty-redraw: a full drawNow() (and a fresh album-art fetch) only
-    // happens when the track changes. Otherwise we repaint just the
-    // progress region every ~250ms so the art isn't wiped every frame.
+    // Screen mode: deck when playing/paused; a status screen when offline or stopped.
+    int mode = 0;   // 0 = deck, 1 = offline, 2 = nothing playing
+    if (!net::isOnline() || g_state.status == PlaybackStatus::Offline) mode = 1;
+    else if (g_state.status == PlaybackStatus::Stopped) mode = 2;
+
+    static int lastMode = -1;
     static char lastTrack[96] = "";
-    if (strcmp(lastTrack, g_state.trackName) != 0) {
+    if (mode != 0) {
+        if (lastMode != mode) {   // draw the status screen once (no flicker)
+            ui::drawOffline(tft, mode == 1 ? "No signal..." : "Nothing playing");
+            lastMode = mode;
+            lastTrack[0] = '\0';  // force a full deck redraw when playback resumes
+        }
+    } else if (lastMode != 0 || strcmp(lastTrack, g_state.trackName) != 0) {
+        // Full deck redraw: on track change (and when returning from a status screen).
+        lastMode = 0;
         pokeapi::pickRandom(g_state);    // fresh random Pokemon each play
         view.pokedexNum = g_state.pokedexNum;
         strncpy(view.pokeName, g_state.pokeName, sizeof(view.pokeName));

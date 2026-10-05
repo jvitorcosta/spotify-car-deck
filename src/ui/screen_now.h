@@ -13,4 +13,6 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st);
 // Draws the current synced lyric line in the area under the HP bar (empty if
 // there is no synced line). Called each redraw with the line for the moment.
 void drawLyricArea(TFT_eSPI& t, const char* currentLine);
+// Full-screen in-theme status message (e.g. "No signal...", "Nothing playing").
+void drawOffline(TFT_eSPI& t, const char* msg);
 }

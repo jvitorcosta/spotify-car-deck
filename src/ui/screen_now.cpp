@@ -84,6 +84,15 @@ void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
     t.setTextDatum(TL_DATUM);
 }
 
+void drawOffline(TFT_eSPI& t, const char* msg) {
+    t.fillScreen(theme::GBA_NAVY);
+    t.fillRect(0, 0, 320, 22, theme::GBA_NAVY);
+    t.setTextColor(theme::GBA_CREAM, theme::GBA_NAVY);
+    t.setTextDatum(MC_DATUM);
+    t.drawString(msg, 160, 120, 4);
+    t.setTextDatum(TL_DATUM);
+}
+
 void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     t.fillScreen(0x6ADC);  // GBA sky blue background
 

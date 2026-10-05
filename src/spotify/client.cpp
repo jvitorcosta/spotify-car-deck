@@ -142,6 +142,20 @@ bool poll(AppState& st) {
     return false;
 }
 
+static void onPlayer(PlayerDetails pd) {
+    AppState& st = *target;
+    copyStr(st.deviceName, pd.device.name, sizeof(st.deviceName));
+    st.volume  = pd.device.volumePercent;
+    st.shuffle = pd.shuffleState;
+    st.repeat  = (int)pd.repeateState;
+}
+
+void pollPlayerDetails(AppState& st) {
+    if (!sp) return;
+    target = &st;
+    sp->getPlayerDetails(onPlayer, SPOTIFY_MARKET);
+}
+
 void togglePlay(bool currentlyPlaying) {
     if (!sp) return;
     if (currentlyPlaying) sp->pause(); else sp->play();
