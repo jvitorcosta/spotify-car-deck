@@ -10,6 +10,9 @@
 #include "ui/screen_now.h"
 #include "util/interp.h"
 #include "images/jpeg.h"
+#include "images/png.h"
+#include "images/cache.h"
+#include "pokemon/pokeapi.h"
 
 TFT_eSPI tft = TFT_eSPI();
 AppState g_state{};
@@ -18,6 +21,7 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     pinMode(PIN_BL, OUTPUT); digitalWrite(PIN_BL, HIGH);
+    cache::begin();
     tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.drawString("Connecting WiFi...", 10, 10, 2);
@@ -58,11 +62,17 @@ void loop() {
     // progress region every ~250ms so the art isn't wiped every frame.
     static char lastTrack[96] = "";
     if (strcmp(lastTrack, g_state.trackName) != 0) {
+        pokeapi::pickRandom(g_state);    // fresh random Pokemon each play
+        view.pokedexNum = g_state.pokedexNum;
+        strncpy(view.pokeName, g_state.pokeName, sizeof(view.pokeName));
+        strncpy(view.pokeType, g_state.pokeType, sizeof(view.pokeType));
+
         img::cacheAlbumArt(g_state.albumArtUrl);
 
         uint16_t accent = theme::typeColor(g_state.pokeType);
         ui::drawNow(tft, view, accent);
         img::drawAlbumArt(tft, 11, 31, 98, 98);
+        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 175);
 
         strcpy(lastTrack, g_state.trackName);
     } else {
