@@ -88,22 +88,26 @@ bool drawAlbumArt(TFT_eSPI& t, int x, int y, int boxW, int boxH) {
     TJpgDec.getJpgSize(&jw, &jh, g_buf, g_len);
     if (jw == 0 || jh == 0) return false;
 
+    // Pick the largest scale whose image still COVERS the box, so the cover
+    // fills it (center-cropped) rather than sitting small with a margin.
     uint8_t scale = 1;
-    while ((jw / scale > boxW || jh / scale > boxH) && scale < 8) scale <<= 1;
+    while (jw / (scale * 2) >= boxW && jh / (scale * 2) >= boxH && scale < 8) scale <<= 1;
     TJpgDec.setJpgScale(scale);
     TJpgDec.setCallback(tftOutput);
 
     g_tft = &t;
-    g_ox = x + (boxW - jw / scale) / 2;
+    g_ox = x + (boxW - jw / scale) / 2;   // may be negative (image > box) -> cropped
     g_oy = y + (boxH - jh / scale) / 2;
 
-    // TJpg_Decoder emits little-endian RGB565; pushImage needs byte-swap to
-    // show true colors (without this the cover renders with wrong/"inverted"
-    // hues). Restore afterwards so the big-endian sprite path stays correct.
+    // Clip drawing to the box so the (larger) cover is center-cropped, and
+    // byte-swap TJpg's little-endian output for true colors. Restore after so
+    // the big-endian sprite path and full-screen UI stay correct.
     bool prevSwap = t.getSwapBytes();
+    t.setViewport(x, y, boxW, boxH, false);
     t.setSwapBytes(true);
     JRESULT r = TJpgDec.drawJpg(0, 0, g_buf, g_len);
     t.setSwapBytes(prevSwap);
+    t.resetViewport();
     return r == JDR_OK;
 }
 

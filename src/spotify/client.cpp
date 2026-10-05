@@ -1,5 +1,7 @@
 #include "client.h"
 #include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <SpotifyArduino.h>
 #include "../config.h"
 #include "../spotify/auth.h"
@@ -46,11 +48,88 @@ void begin() {
     else Serial.println("[spotify] refreshAccessToken FAILED");
 }
 
+// --- Context (playlist/album/artist) name resolution ------------------------
+// getCurrentlyPlaying only returns the context URI; the Web API needs a separate
+// authorized call for the playlist name. We keep our own access token (refreshed
+// from the refresh token) for these lookups and cache the last resolved name.
+static String g_accessToken;        // "Bearer xxx"
+static uint32_t g_tokenExpiry = 0;
+
+static bool ensureAccessToken() {
+    if (!g_accessToken.isEmpty() && (int32_t)(g_tokenExpiry - millis()) > 0) return true;
+    String rt = spauth::loadRefreshToken();
+    if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;
+    if (rt.isEmpty()) return false;
+    WiFiClientSecure c; c.setInsecure();
+    HTTPClient https;
+    if (!https.begin(c, "https://accounts.spotify.com/api/token")) return false;
+    https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String body = "grant_type=refresh_token&refresh_token=" + rt +
+                  "&client_id=" + SPOTIFY_CLIENT_ID +
+                  "&client_secret=" + SPOTIFY_CLIENT_SECRET;
+    int rc = https.POST(body);
+    if (rc != 200) { https.end(); return false; }
+    JsonDocument doc;
+    DeserializationError e = deserializeJson(doc, https.getString());
+    https.end();
+    if (e || !doc["access_token"].is<const char*>()) return false;
+    g_accessToken = String("Bearer ") + (const char*)doc["access_token"];
+    g_tokenExpiry = millis() + 50UL * 60 * 1000;   // tokens last ~1h
+    return true;
+}
+
+// uri like "spotify:playlist:ID" / ":album:" / ":artist:"
+static void resolveContext(const char* uri, char* out, size_t n) {
+    out[0] = '\0';
+    if (!uri || !uri[0]) { strncpy(out, "-", n - 1); out[n - 1] = 0; return; }
+    String u = uri;
+    int p1 = u.indexOf(':'), p2 = u.indexOf(':', p1 + 1);
+    if (p1 < 0 || p2 < 0) { strncpy(out, "-", n - 1); out[n - 1] = 0; return; }
+    String type = u.substring(p1 + 1, p2), id = u.substring(p2 + 1);
+
+    const char* endpoint = nullptr;
+    if (type == "playlist") endpoint = "playlists";
+    else if (type == "album") endpoint = "albums";
+    else if (type == "artist") endpoint = "artists";
+    if (!endpoint || !ensureAccessToken()) {
+        strncpy(out, type.c_str(), n - 1); out[n - 1] = 0; return;
+    }
+    WiFiClientSecure c; c.setInsecure();
+    HTTPClient https;
+    String url = "https://api.spotify.com/v1/" + String(endpoint) + "/" + id + "?fields=name";
+    if (!https.begin(c, url)) { strncpy(out, type.c_str(), n - 1); out[n - 1] = 0; return; }
+    https.addHeader("Authorization", g_accessToken);
+    int rc = https.GET();
+    if (rc == 200) {
+        JsonDocument d;
+        if (!deserializeJson(d, https.getString()) && d["name"].is<const char*>())
+            strncpy(out, d["name"], n - 1);
+        else strncpy(out, type.c_str(), n - 1);
+    } else {
+        strncpy(out, type.c_str(), n - 1);
+    }
+    out[n - 1] = 0;
+    https.end();
+}
+
 bool poll(AppState& st) {
     if (!sp) return false;
     target = &st; trackChanged = false;
     int code = sp->getCurrentlyPlaying(onPlaying, SPOTIFY_MARKET);
     if (code == 200) {
+        // st.context holds the raw context URI (set in onPlaying). Resolve it to
+        // a human name once per context change (cached), done here — never inside
+        // the getCurrentlyPlaying callback (no nested HTTPS during its parse).
+        static char cachedUri[64] = "";
+        static char cachedName[64] = "";
+        if (strcmp(cachedUri, st.context) != 0) {
+            resolveContext(st.context, cachedName, sizeof(cachedName));
+            strncpy(cachedUri, st.context, sizeof(cachedUri) - 1);
+            cachedUri[sizeof(cachedUri) - 1] = 0;
+            Serial.printf("[spotify] context: %s\n", cachedName);
+        }
+        strncpy(st.context, cachedName, sizeof(st.context) - 1);
+        st.context[sizeof(st.context) - 1] = 0;
         return trackChanged;
     } else if (code == 204) {
         st.status = PlaybackStatus::Stopped;
