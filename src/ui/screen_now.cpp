@@ -3,6 +3,7 @@
 #include "theme.h"
 
 namespace ui {
+
 NowButtons nowButtons() {
     NowButtons b;
     int y = 206, h = 30;
@@ -14,43 +15,65 @@ NowButtons nowButtons() {
     return b;
 }
 
+// Truncate a string with a trailing ellipsis so it fits within maxW pixels.
+static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font) {
+    String str = (s && s[0]) ? String(s) : String("");
+    if (t.textWidth(str, font) <= maxW) return str;
+    while (str.length() > 1) {
+        str.remove(str.length() - 1);
+        if (t.textWidth(str + "...", font) <= maxW) break;
+    }
+    return str + "...";
+}
+
+// HP bar now DEPLETES as the song plays: full at the start, empty at the end
+// (the Pokemon "takes damage" over the song). Label shows remaining time.
+void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
+    panel(t, 118, 116, 194, 36);
+    uint32_t rem = (st.durationMs > st.progressMs) ? (st.durationMs - st.progressMs) : 0;
+    float hpFrac = st.durationMs ? (float)rem / (float)st.durationMs : 1.0f;
+    char tbuf[24];
+    snprintf(tbuf, sizeof(tbuf), "HP  %u:%02u", rem / 60000, (rem / 1000) % 60);
+    t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
+    t.setTextDatum(TL_DATUM);
+    t.drawString(tbuf, 124, 120, 2);
+    hpBar(t, 124, 138, 182, 9, hpFrac);
+}
+
 void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     t.fillScreen(0x6ADC);  // GBA sky blue background
 
     // top bar
     t.fillRect(0, 0, 320, 22, theme::GBA_NAVY);
     t.setTextColor(theme::GBA_CREAM, theme::GBA_NAVY);
+    t.setTextDatum(TL_DATUM);
     t.drawString("NOW PLAYING", 8, 5, 2);
     t.setTextDatum(TR_DATUM);
-    t.drawString(st.deviceName[0] ? st.deviceName : "device", 312, 5, 2);
+    t.drawString(fitText(t, st.deviceName[0] ? st.deviceName : "device", 120, 2), 312, 5, 2);
     t.setTextDatum(TL_DATUM);
 
-    // left: album art box + pokemon box (placeholders here; images in later tasks)
+    // left: album art box (image drawn on top by main) + pokemon box
     panel(t, 8, 28, 104, 104);
-    t.fillRect(11, 31, 98, 98, 0xBDD7); // placeholder art
+    t.fillRect(11, 31, 98, 98, 0xBDD7); // placeholder until art is pushed over it
     panel(t, 8, 136, 104, 96);
+    // pokemon name pinned to the bottom of its box so the sprite has room above
     t.setTextColor(accent, theme::GBA_CREAM);
     t.setTextDatum(MC_DATUM);
-    t.drawString(st.pokeName[0] ? st.pokeName : "Pokemon", 60, 210, 2);
+    t.drawString(fitText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 96, 2), 60, 220, 2);
     t.setTextDatum(TL_DATUM);
 
-    // right column
+    // right column (all text truncated to the panel width)
+    const int RW = 182;  // usable text width in the right column
     panel(t, 118, 28, 194, 44);
     t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
-    t.drawString(st.trackName[0] ? st.trackName : "Track title", 124, 32, 2);
-    t.drawString(st.artist[0] ? st.artist : "Artist", 124, 52, 2);
+    t.drawString(fitText(t, st.trackName[0] ? st.trackName : "Track title", RW, 2), 124, 32, 2);
+    t.drawString(fitText(t, st.artist[0] ? st.artist : "Artist", RW, 2), 124, 52, 2);
 
     panel(t, 118, 76, 194, 36);
     t.drawString("From:", 124, 80, 2);
-    t.drawString(st.context[0] ? st.context : "Playlist", 124, 94, 2);
+    t.drawString(fitText(t, st.context[0] ? st.context : "Playlist", RW, 2), 124, 94, 2);
 
-    panel(t, 118, 116, 194, 36);
-    float frac = st.durationMs ? (float)st.progressMs / st.durationMs : 0;
-    hpBar(t, 124, 138, 182, 9, frac);
-    char tbuf[32];
-    snprintf(tbuf, sizeof(tbuf), "%u:%02u  CP %d",
-             st.progressMs/60000, (st.progressMs/1000)%60, st.popularity);
-    t.drawString(tbuf, 124, 120, 2);
+    drawProgressRegion(t, st);
 
     // controls
     NowButtons b = nowButtons();

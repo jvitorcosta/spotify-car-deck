@@ -97,7 +97,13 @@ bool drawAlbumArt(TFT_eSPI& t, int x, int y, int boxW, int boxH) {
     g_ox = x + (boxW - jw / scale) / 2;
     g_oy = y + (boxH - jh / scale) / 2;
 
+    // TJpg_Decoder emits little-endian RGB565; pushImage needs byte-swap to
+    // show true colors (without this the cover renders with wrong/"inverted"
+    // hues). Restore afterwards so the big-endian sprite path stays correct.
+    bool prevSwap = t.getSwapBytes();
+    t.setSwapBytes(true);
     JRESULT r = TJpgDec.drawJpg(0, 0, g_buf, g_len);
+    t.setSwapBytes(prevSwap);
     return r == JDR_OK;
 }
 

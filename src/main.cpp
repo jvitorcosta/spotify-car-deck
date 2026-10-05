@@ -72,25 +72,14 @@ void loop() {
         uint16_t accent = theme::typeColor(g_state.pokeType);
         ui::drawNow(tft, view, accent);
         img::drawAlbumArt(tft, 11, 31, 98, 98);
-        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 175);
+        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 170);
 
         strcpy(lastTrack, g_state.trackName);
     } else {
         static uint32_t lastDraw = 0;
         if (millis() - lastDraw >= 250) {   // ~4 fps redraw is plenty
             lastDraw = millis();
-
-            // Exactly mirrors the progress panel in ui::drawNow()
-            // (src/ui/screen_now.cpp): panel at (118,116,194,36), hpBar at
-            // (124,138,182,9), and the time/CP text at (124,120).
-            ui::panel(tft, 118, 116, 194, 36);
-            float frac = view.durationMs ? (float)view.progressMs / view.durationMs : 0;
-            ui::hpBar(tft, 124, 138, 182, 9, frac);
-            char tbuf[32];
-            snprintf(tbuf, sizeof(tbuf), "%u:%02u  CP %d",
-                     view.progressMs / 60000, (view.progressMs / 1000) % 60, view.popularity);
-            tft.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
-            tft.drawString(tbuf, 124, 120, 2);
+            ui::drawProgressRegion(tft, view);   // shared with drawNow() — single source
         }
     }
     delay(10);
