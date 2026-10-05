@@ -22,7 +22,7 @@ void setup() {
     delay(200);
     pinMode(PIN_BL, OUTPUT); digitalWrite(PIN_BL, HIGH);
     cache::begin();
-    tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
+    tft.init(); tft.invertDisplay(true); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.drawString("Connecting WiFi...", 10, 10, 2);
 

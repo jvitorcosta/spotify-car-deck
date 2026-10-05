@@ -21,6 +21,7 @@ void setup() {
     digitalWrite(PIN_BL, HIGH);
 
     tft.init();
+    tft.invertDisplay(true);          // CYD panel: colors are inverted without this
     tft.setRotation(1);               // landscape 320x240
     tft.fillScreen(TFT_BLACK);
     tft.fillRect(0, 0, 320, 80, TFT_RED);
