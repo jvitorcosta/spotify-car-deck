@@ -72,7 +72,7 @@ void loop() {
         uint16_t accent = theme::typeColor(g_state.pokeType);
         ui::drawNow(tft, view, accent);
         img::drawAlbumArt(tft, 11, 31, 98, 98);
-        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 170);
+        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 176);
 
         strcpy(lastTrack, g_state.trackName);
     } else {

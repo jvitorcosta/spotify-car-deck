@@ -11,23 +11,21 @@ static PNG png;
 static TFT_eSPI* g_tft = nullptr;
 static int g_x0 = 0, g_y0 = 0;
 static int g_scale = 1;        // 1 = native, 2 = half-size (nearest-neighbor)
-static bool g_hasAlpha = false;
 
-// PNGdec draw callback: decodes one scanline at a time and blits only the
-// OPAQUE pixels (true transparent silhouette — the panel/background shows
-// through), honoring g_scale for nearest-neighbor downscaling of big sprites.
+// PNGdec draw callback: decodes one scanline at a time, compositing transparent
+// pixels against the cream panel the sprite sits on (so there's no visible box
+// or halo — it reads as a clean cutout on the panel), then blits the line.
+// Colors stay correct because pushImage consumes the big-endian RGB565 directly.
 static int pngDraw(PNGDRAW* pDraw) {
-    if (g_scale == 2 && (pDraw->y & 1)) return 1;   // drop odd source rows
     uint16_t lineBuf[256];
-    png.getLineAsRGB565(pDraw, lineBuf, PNG_RGB565_BIG_ENDIAN, 0x0000);
-    uint8_t mask[32];
-    if (g_hasAlpha) png.getAlphaMask(pDraw, mask, 128);   // bit set == opaque
-    int dy = g_y0 + pDraw->y / g_scale;
-    int outX = 0;
-    for (int i = 0; i < pDraw->iWidth; i += g_scale) {
-        bool opaque = !g_hasAlpha || (mask[i >> 3] & (1 << (i & 7)));
-        if (opaque) g_tft->drawPixel(g_x0 + outX, dy, lineBuf[i]);
-        ++outX;
+    png.getLineAsRGB565(pDraw, lineBuf, PNG_RGB565_BIG_ENDIAN, theme::GBA_CREAM);
+    if (g_scale == 2) {
+        if (pDraw->y & 1) return 1;                 // drop odd source rows
+        int w = pDraw->iWidth / 2;
+        for (int i = 0; i < w; ++i) lineBuf[i] = lineBuf[i * 2];
+        g_tft->pushImage(g_x0, g_y0 + pDraw->y / 2, w, 1, lineBuf);
+    } else {
+        g_tft->pushImage(g_x0, g_y0 + pDraw->y, pDraw->iWidth, 1, lineBuf);
     }
     return 1;
 }
@@ -96,7 +94,6 @@ bool drawSprite(TFT_eSPI& t, const char* url, int dex, int cx, int cy) {
     g_tft = &t;
     int w = png.getWidth(), h = png.getHeight();
     g_scale = (w > 64 || h > 64) ? 2 : 1;   // shrink big 96px sprites to ~48px
-    g_hasAlpha = png.hasAlpha();
     g_x0 = cx - (w / g_scale) / 2;
     g_y0 = cy - (h / g_scale) / 2;
     png.decode(nullptr, 0);

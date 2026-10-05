@@ -59,10 +59,16 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     panel(t, 8, 28, 104, 104);
     t.fillRect(11, 31, 98, 98, 0xBDD7); // placeholder until art is pushed over it
     panel(t, 8, 136, 104, 96);
-    // pokemon name pinned to the bottom of its box so the sprite has room above
-    t.setTextColor(accent, theme::GBA_CREAM);
     t.setTextDatum(MC_DATUM);
-    t.drawString(fitText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 96, 2), 60, 220, 2);
+    // dex number at the top, name at the bottom (sprite is drawn between by main)
+    if (st.pokedexNum > 0) {
+        char no[12];
+        snprintf(no, sizeof(no), "No.%03d", st.pokedexNum);
+        t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
+        t.drawString(no, 60, 143, 1);
+    }
+    t.setTextColor(accent, theme::GBA_CREAM);
+    t.drawString(fitText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 100, 2), 60, 218, 2);
     t.setTextDatum(TL_DATUM);
 
     // right column (all text truncated to the panel width)

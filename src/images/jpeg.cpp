@@ -24,6 +24,23 @@ static bool tftOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bm
     return true;
 }
 
+// Decode-to-buffer callback used when we resample the cover to exactly fit its
+// (square) box so the WHOLE cover shows, filling the box with no crop/margin.
+static uint16_t* g_decBuf = nullptr;
+static int g_decW = 0, g_decH = 0;
+static bool bufOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bmp) {
+    for (int row = 0; row < h; ++row) {
+        int dy = y + row;
+        if (dy < 0 || dy >= g_decH) continue;
+        for (int col = 0; col < w; ++col) {
+            int dx = x + col;
+            if (dx < 0 || dx >= g_decW) continue;
+            g_decBuf[dy * g_decW + dx] = bmp[row * w + col];
+        }
+    }
+    return true;
+}
+
 bool cacheAlbumArt(const char* url) {
     if (g_buf) {
         free(g_buf);
@@ -88,26 +105,51 @@ bool drawAlbumArt(TFT_eSPI& t, int x, int y, int boxW, int boxH) {
     TJpgDec.getJpgSize(&jw, &jh, g_buf, g_len);
     if (jw == 0 || jh == 0) return false;
 
-    // Pick the largest scale whose image still COVERS the box, so the cover
-    // fills it (center-cropped) rather than sitting small with a margin.
+    // Decode at the smallest scale whose image still covers the box, into a
+    // buffer, then nearest-neighbor resample it to EXACTLY fill the box. Covers
+    // are square and the box is square, so this shows the whole cover with no
+    // crop and no margin.
     uint8_t scale = 1;
     while (jw / (scale * 2) >= boxW && jh / (scale * 2) >= boxH && scale < 8) scale <<= 1;
-    TJpgDec.setJpgScale(scale);
-    TJpgDec.setCallback(tftOutput);
+    int sw = jw / scale, sh = jh / scale;
 
-    g_tft = &t;
-    g_ox = x + (boxW - jw / scale) / 2;   // may be negative (image > box) -> cropped
-    g_oy = y + (boxH - jh / scale) / 2;
-
-    // Clip drawing to the box so the (larger) cover is center-cropped, and
-    // byte-swap TJpg's little-endian output for true colors. Restore after so
-    // the big-endian sprite path and full-screen UI stay correct.
     bool prevSwap = t.getSwapBytes();
-    t.setViewport(x, y, boxW, boxH, false);
+    g_decBuf = (uint16_t*)malloc((size_t)sw * sh * 2);
+    if (g_decBuf) {
+        g_decW = sw; g_decH = sh;
+        for (int i = 0; i < sw * sh; ++i) g_decBuf[i] = 0;
+        TJpgDec.setJpgScale(scale);
+        TJpgDec.setCallback(bufOutput);
+        TJpgDec.drawJpg(0, 0, g_buf, g_len);
+
+        t.setSwapBytes(true);   // TJpg output is little-endian; pushImage needs swap
+        uint16_t line[160];
+        for (int oy = 0; oy < boxH && oy < 160; ++oy) {
+            int syy = oy * sh / boxH;
+            for (int ox = 0; ox < boxW && ox < 160; ++ox) {
+                int sxx = ox * sw / boxW;
+                line[ox] = g_decBuf[syy * sw + sxx];
+            }
+            t.pushImage(x, y + oy, boxW, 1, line);
+        }
+        t.setSwapBytes(prevSwap);
+        free(g_decBuf);
+        g_decBuf = nullptr;
+        return true;
+    }
+
+    // Fallback (alloc failed): integer-scale to fit inside the box (full cover,
+    // small margin), no crop.
+    uint8_t fscale = 1;
+    while ((jw / fscale > boxW || jh / fscale > boxH) && fscale < 8) fscale <<= 1;
+    TJpgDec.setJpgScale(fscale);
+    TJpgDec.setCallback(tftOutput);
+    g_tft = &t;
+    g_ox = x + (boxW - jw / fscale) / 2;
+    g_oy = y + (boxH - jh / fscale) / 2;
     t.setSwapBytes(true);
     JRESULT r = TJpgDec.drawJpg(0, 0, g_buf, g_len);
     t.setSwapBytes(prevSwap);
-    t.resetViewport();
     return r == JDR_OK;
 }
 
