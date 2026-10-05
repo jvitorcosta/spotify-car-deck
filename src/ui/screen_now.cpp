@@ -31,9 +31,12 @@ static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font) {
 void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
     panel(t, 118, 116, 194, 36);
     uint32_t rem = (st.durationMs > st.progressMs) ? (st.durationMs - st.progressMs) : 0;
+    uint32_t tot = st.durationMs;
     float hpFrac = st.durationMs ? (float)rem / (float)st.durationMs : 1.0f;
-    char tbuf[24];
-    snprintf(tbuf, sizeof(tbuf), "HP  %u:%02u", rem / 60000, (rem / 1000) % 60);
+    // Pokémon-style "current/max": remaining time = current HP, total = max HP.
+    char tbuf[28];
+    snprintf(tbuf, sizeof(tbuf), "HP  %u:%02u/%u:%02u",
+             rem / 60000, (rem / 1000) % 60, tot / 60000, (tot / 1000) % 60);
     t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
     t.setTextDatum(TL_DATUM);
     t.drawString(tbuf, 124, 120, 2);
