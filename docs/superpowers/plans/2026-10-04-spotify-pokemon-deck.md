@@ -25,6 +25,47 @@
 
 ---
 
+## As-Built Status (updated 2026-10-05)
+
+Verified end-to-end on real hardware (CYD on COM11): WiFi → Spotify → live deck with
+album art, random Pokémon, and synced lyric line.
+
+**Done:** Tasks 1–12 (scaffold, theme, interp, lrc, WiFi, auth, now-playing poll,
+controls (code), deck UI, live data, album art, Pokémon sprite). Plus live fixes below.
+
+**Deviations from the original plan (supersede the task text):**
+- **OAuth (Task 6):** Spotify now rejects non-loopback `http` redirect URIs, so the
+  on-device LAN portal does NOT work. Replaced by a PC loopback helper
+  (`.devtools/spotify_auth.py`, redirect `http://127.0.0.1:8888/callback`) that writes
+  a refresh token into `src/config.h`; firmware uses it directly (NVS portal kept as
+  fallback but skipped when a config token is present).
+- **Display:** CYD panel needs `tft.invertDisplay(true)` (colors were inverted).
+- **HTTP/JSON:** PokéAPI and LRCLIB must read `getString()` (de-chunked) then parse;
+  parsing the raw chunked `getStream()` silently returned empty.
+- **Accents (PT-BR):** fonts are ASCII-only, so names are stored as original UTF-8
+  (for LRCLIB matching) and folded to ASCII at display time via tested `util/text`.
+- **Album art:** decode-small + resample to exactly fill the square box (capped buffer
+  for reliable malloc), not the plan's simple integer scale.
+- **Lyrics (Task 14):** implemented as an INLINE current-verse line under the HP bar
+  (synced, advances with playback), NOT a separate LYRICS screen + button. Full
+  lyrics screen deferred.
+- **Controls (Tasks 8/13):** control methods exist (`spclient::togglePlay/next/prev/
+  setVolume`) but the on-screen button row is REMOVED for now (more space); touch
+  wiring (Task 13) deferred. `nowButtons()` layout kept in code for later.
+- **HP bar:** drains from the LEFT, green→yellow→red, labelled `HP remaining/total`.
+
+**Remaining:**
+- **Task 15 (polish):** fetch PlayerDetails for real device name + shuffle/repeat/
+  volume (now-playing doesn't include these); offline / "no signal" / "nothing playing"
+  states for in-car dead zones; touch calibration (only if controls return).
+- **Task 16 (walking-Pokémon progress bar):** space reserved under the HP bar.
+- **Deferred:** Task 13 (touch controls), full lyrics screen, optional `Lv.`=popularity.
+
+**Toolchain (this machine):** build/test via `.devtools/pio.ps1` and `.devtools/ntest.ps1`;
+board on COM11; PlatformIO core on `D:\.platformio`.
+
+---
+
 ## File Structure
 
 ```
