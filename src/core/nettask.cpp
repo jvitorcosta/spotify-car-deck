@@ -21,7 +21,8 @@ namespace nettask {
 static AppState s_st{};            // this task's private copy; published after changes
 static netplan::TrackGen s_gen;
 static netplan::Work s_work{};
-static netplan::LinkGate s_link;   // "No signal" only after several failed polls in a row
+static netplan::LinkGate s_link;
+static netplan::Health s_health;   // pause optional work / restart when polls keep failing   // "No signal" only after several failed polls in a row
 static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot (Task 12)
 static uint32_t s_t0 = 0;
 
@@ -109,6 +110,13 @@ static void run(void*) {
             tock("poll");
             bool ok = s_st.status != PlaybackStatus::Offline;
             if (!ok) mem::log("poll failed");
+            if (s_health.onPoll(ok, net::isOnline(), now) == netplan::Health::Action::Restart) {
+                mem::log("restart");
+                Serial.printf("[net] no good poll for %u s with WiFi up: restarting\n",
+                              (unsigned)(netplan::Health::RESTART_AFTER_MS / 1000));
+                delay(200);
+                ESP.restart();
+            }
             if (!s_link.update(ok) && !ok) s_st.status = before;   // isolated failure: keep last state
             if (s_gen.update(s_st.trackName)) onTrackChange();
             else shared::publish(s_st);
@@ -122,7 +130,9 @@ static void run(void*) {
             netplan::Step step = netplan::next(s_work);
             static bool deferred = false;
             if (step != netplan::Step::None) {
-                if (netplan::canRun(step, (unsigned)mem::byteLargest())) {
+                bool optional = step != netplan::Step::Art;
+                if (!(optional && s_health.optionalPaused()) &&
+                    netplan::canRun(step, (unsigned)mem::byteLargest())) {
                     deferred = false;
                     doStep(step);
                 } else if (!deferred) {            // log once per deferral, retry after polls
