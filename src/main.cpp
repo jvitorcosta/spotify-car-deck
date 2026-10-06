@@ -14,7 +14,7 @@
 #include "ui/screen_now.h"
 #include "util/interp.h"
 #include "util/lrc.h"
-#include "images/jpeg.h"
+#include "images/art.h"
 #include "images/walksprite.h"
 #include "images/cache.h"
 
@@ -32,6 +32,14 @@ static const char* currentLyric(uint32_t posMs) {
     return (idx >= 0) ? g_lrcLines[idx].text.c_str() : "";
 }
 
+// Pushes the album-art bitmap if it is valid for the track on screen. Check and push happen
+// under one lock so the network task cannot start overwriting the bitmap in between.
+static void pushArtIfValid(uint32_t gen) {
+    shared::Guard g;
+    if (shared::artValidLocked(gen))
+        tft.pushImage(ui::ART_X, ui::ART_Y, art::W, art::H, art::bitmap());
+}
+
 void setup() {
     Serial.begin(115200);
     delay(200);
@@ -39,6 +47,7 @@ void setup() {
     pinMode(PIN_BL, OUTPUT); digitalWrite(PIN_BL, HIGH);
     shared::begin();
     walk::begin();            // allocate both walker slots before the heap fragments
+    art::begin();             // fixed album-art bitmap (before WiFi)
     cache::begin();
     tft.init(); tft.invertDisplay(true); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -88,22 +97,15 @@ void loop() {
             shownGen = st.trackGen;
             walkerOn = false;
             g_lrcLines.clear();
-            img::setAlbumArt(nullptr, 0);
         }
         ui::drawNow(tft, view, theme::typeColor(st.pokeType));
         g_topSig[0] = '\0';
-        img::drawAlbumArt(tft, ui::ART_X, ui::ART_Y, ui::ART_W, ui::ART_H);   // no-op if none yet
+        pushArtIfValid(shownGen);   // back from a status screen: same track's art is still valid
         ui::drawLyricArea(tft, currentLyric(view.progressMs));
         mem::log("track");
     } else {
         // Media arriving from the network task for the track on screen.
-        uint8_t* jpeg = nullptr;
-        int jlen = 0;
-        if (shared::takeArt(shownGen, &jpeg, &jlen)) {
-            img::setAlbumArt(jpeg, jlen);
-            if (!img::drawAlbumArt(tft, ui::ART_X, ui::ART_Y, ui::ART_W, ui::ART_H))
-                Serial.printf("[ui] album art decode failed (%d bytes)\n", jlen);
-        }
+        if (shared::takeArt(shownGen)) pushArtIfValid(shownGen);
         std::vector<lrc::LrcLine>* lines = nullptr;
         if (shared::takeLyrics(shownGen, &lines)) {
             g_lrcLines = std::move(*lines);

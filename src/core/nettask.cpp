@@ -6,7 +6,7 @@
 #include "mem.h"
 #include "../net/wifi.h"
 #include "../spotify/client.h"
-#include "../images/jpeg.h"
+#include "../images/art.h"
 #include "../images/walksprite.h"
 #include "../lyrics/lrclib.h"
 #include "../pokemon/pick.h"
@@ -62,11 +62,10 @@ static void doStep(netplan::Step step) {
             break;
         }
         case netplan::Step::Art: {
-            uint8_t* jpeg = nullptr;
-            int len = 0;
             tick();
-            bool ok = img::downloadAlbumArt(s_st.albumArtUrl, &jpeg, &len);
-            if (ok) shared::postArt(gen, jpeg, len);
+            shared::artInvalidate();          // UI stops pushing the bitmap before we overwrite it
+            bool ok = art::fetch(s_st.albumArtUrl);
+            if (ok) shared::postArt(gen);
             tock(ok ? "art" : "art failed");
             mem::log("art");
             break;

@@ -17,13 +17,18 @@ struct Guard { Guard() { lock(); } ~Guard() { unlock(); } };
 void publish(const AppState& st);
 void snapshot(AppState& out);
 
+// Album art lives in art::bitmap(). The network task calls artInvalidate() before writing it
+// and postArt(gen) after; the UI pushes it only while it is valid for the track on screen.
+void artInvalidate();
+void postArt(uint32_t gen);
+bool takeArt(uint32_t gen);            // true once per arrival (UI)
+bool artValidLocked(uint32_t gen);     // caller holds the lock (UI redraw + push)
+
 // Per-track media mailbox. Each result is tagged with the trackGen it was fetched for;
 // post* frees it if the published track has already moved on (rapid skipping).
-void postArt(uint32_t gen, uint8_t* jpeg, int len);                 // takes ownership
 void postLyrics(uint32_t gen, std::vector<lrc::LrcLine>* lines);    // takes ownership
 void postWalker(uint32_t gen);                                       // walker promoted
 // UI side: take a result for `gen`; ownership moves to the caller. False if none.
-bool takeArt(uint32_t gen, uint8_t** jpeg, int* len);
 bool takeLyrics(uint32_t gen, std::vector<lrc::LrcLine>** lines);
 bool takeWalker(uint32_t gen);
 }

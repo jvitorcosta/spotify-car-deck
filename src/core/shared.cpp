@@ -6,9 +6,8 @@ namespace shared {
 
 static SemaphoreHandle_t g_mtx = nullptr;
 static AppState g_state{};
-static uint8_t* g_art = nullptr;
-static int g_artLen = 0;
-static uint32_t g_artGen = 0;
+static uint32_t g_artGen = 0;  // gen the bitmap is valid for (0 = invalid)
+static bool g_artNew = false;
 static std::vector<lrc::LrcLine>* g_lyrics = nullptr;
 static uint32_t g_lyricsGen = 0;
 static uint32_t g_walkerGen = 0;
@@ -20,12 +19,6 @@ void unlock() { xSemaphoreGive(g_mtx); }
 void publish(const AppState& st) { Guard g; g_state = st; }
 void snapshot(AppState& out) { Guard g; out = g_state; }
 
-void postArt(uint32_t gen, uint8_t* jpeg, int len) {
-    Guard g;
-    if (gen != g_state.trackGen) { free(jpeg); return; }   // stale: track moved on
-    free(g_art);
-    g_art = jpeg; g_artLen = len; g_artGen = gen;
-}
 
 void postLyrics(uint32_t gen, std::vector<lrc::LrcLine>* lines) {
     Guard g;
@@ -36,13 +29,23 @@ void postLyrics(uint32_t gen, std::vector<lrc::LrcLine>* lines) {
 
 void postWalker(uint32_t gen) { Guard g; if (gen == g_state.trackGen) g_walkerGen = gen; }
 
-bool takeArt(uint32_t gen, uint8_t** jpeg, int* len) {
+void artInvalidate() { Guard g; g_artGen = 0; g_artNew = false; }
+
+void postArt(uint32_t gen) {
     Guard g;
-    if (!g_art || g_artGen != gen) return false;
-    *jpeg = g_art; *len = g_artLen;
-    g_art = nullptr; g_artLen = 0;
+    if (gen != g_state.trackGen) return;   // stale: track moved on (bitmap stays invalid)
+    g_artGen = gen;
+    g_artNew = true;
+}
+
+bool takeArt(uint32_t gen) {
+    Guard g;
+    if (!g_artNew || g_artGen != gen) return false;
+    g_artNew = false;
     return true;
 }
+
+bool artValidLocked(uint32_t gen) { return gen != 0 && g_artGen == gen; }
 
 bool takeLyrics(uint32_t gen, std::vector<lrc::LrcLine>** lines) {
     Guard g;
