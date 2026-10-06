@@ -25,7 +25,7 @@
 
 ---
 
-## As-Built Status (updated 2026-10-05)
+## As-Built Status (updated 2026-10-06)
 
 Verified end-to-end on real hardware (CYD on COM11): WiFi → Spotify → live deck with
 album art, random Pokémon, and synced lyric line.
@@ -54,12 +54,19 @@ controls (code), deck UI, live data, album art, Pokémon sprite). Plus live fixe
   wiring (Task 13) deferred. `nowButtons()` layout kept in code for later.
 - **HP bar:** drains from the LEFT, green→yellow→red, labelled `HP remaining/total`.
 
-**Remaining:**
-- **Task 15 (polish):** fetch PlayerDetails for real device name + shuffle/repeat/
-  volume (now-playing doesn't include these); offline / "no signal" / "nothing playing"
-  states for in-car dead zones; touch calibration (only if controls return).
-- **Task 16 (walking-Pokémon progress bar):** space reserved under the HP bar.
-- **Deferred:** Task 13 (touch controls), full lyrics screen, optional `Lv.`=popularity.
+- **Task 15:** done (PlayerDetails poll every ~12 s; "No signal..." / "Nothing
+  playing" screens). Touch calibration skipped (no controls on screen).
+- **Task 16 (walker):** done, but rides the existing HP bar inside the HP panel
+  (no separate route bar; left Pokémon box kept). Layout: HP label y124, walker band
+  above the bar, bar y176 h16, lyric line y196 h40. Interfaces differ from the task
+  text: `img::loadWalkSprite(url, dex, maxSize)` (crops to opaque bounds, keeps aspect,
+  34 px), `ui::drawWalker(t, st, step)`, dirty-rect math in tested `util/walkrect`.
+- **PokéAPI:** fetched with HTTP/1.0 + filtered stream parse (full `getString()` of
+  the huge `/pokemon/N` body failed on a tight heap).
+
+**Remaining / deferred:** Task 13 (touch controls), full lyrics screen, optional
+`Lv.`=popularity; small sprite-pipeline polish (single load per track, alpha-edge
+fringe, `hasAlpha()`-gated colour-key fallback).
 
 **Toolchain (this machine):** build/test via `.devtools/pio.ps1` and `.devtools/ntest.ps1`;
 board on COM11; PlatformIO core on `D:\.platformio`.
@@ -97,6 +104,8 @@ test/                          — one folder per Unity suite (each has its own 
   test_interp/test_interp.cpp
   test_lrc/test_lrc.cpp
   test_walk/test_walk.cpp
+  test_walkrect/test_walkrect.cpp
+  test_text/test_text.cpp
 ```
 
 **Testable-on-host (pure, no Arduino.h):** `ui/theme.*`, `util/interp.*`, `util/lrc.*`.
