@@ -1,9 +1,11 @@
 #pragma once
-#include <string>
 #include "app_state.h"
+#include "../util/lyricbuf.h"
 namespace lyricsvc {
-enum class Kind { None, Synced, Plain };
-struct Result { Kind kind; std::string text; };
-// Fetch lyrics from LRCLIB for the current track (uses original accented names).
-Result fetch(const AppState& st);
+// The one lyrics arena (~5.6 KB, static). Written by the network task, read by the UI through
+// shared::lyricLine() — never directly.
+lyricbuf::Lyrics& arena();
+// Fetches synced lyrics from LRCLIB for the current track (original accented names) and
+// parses them into `out`. True if at least one synced line was found.
+bool fetchInto(const AppState& st, lyricbuf::Lyrics& out);
 }

@@ -6,6 +6,9 @@
 
 namespace lyricsvc {
 
+static lyricbuf::Lyrics g_arena;   // ~5.6 KB, static: allocated once
+lyricbuf::Lyrics& arena() { return g_arena; }
+
 static String urlEncode(const char* s) {
     String out;
     for (const char* p = s; *p; ++p) {
@@ -16,35 +19,38 @@ static String urlEncode(const char* s) {
     return out;
 }
 
-Result fetch(const AppState& st) {
-    Result r{Kind::None, ""};
-    if (!st.trackName[0]) return r;
-
+bool fetchInto(const AppState& st, lyricbuf::Lyrics& out) {
+    out.n = 0;
+    if (!st.trackName[0]) return false;
     String url = "https://lrclib.net/api/get?track_name=" + urlEncode(st.trackName) +
                  "&artist_name=" + urlEncode(st.artist) +
                  "&album_name=" + urlEncode(st.album) +
                  "&duration=" + String(st.durationMs / 1000);
 
-    WiFiClientSecure client; client.setInsecure();
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(8);
     HTTPClient https;
-    if (!https.begin(client, url)) return r;
+    https.useHTTP10(true);          // plain body: parse straight from the stream
+    https.setTimeout(8000);
+    if (!https.begin(client, url)) return false;
     https.addHeader("User-Agent", "PokeDeck/1.0 (ESP32)");
     int rc = https.GET();
-    if (rc != 200) { Serial.printf("[lyrics] GET rc=%d\n", rc); https.end(); return r; }  // 404 = no match
-
-    String body = https.getString();   // de-chunk before parsing
-    https.end();
+    if (rc != 200) {                 // 404 = no match
+        Serial.printf("[lyrics] GET rc=%d\n", rc);
+        https.end();
+        return false;
+    }
     JsonDocument filter;
-    filter["syncedLyrics"] = true;
-    filter["plainLyrics"] = true;
+    filter["syncedLyrics"] = true;   // plain lyrics can't be timed; don't even buffer them
     JsonDocument doc;
-    deserializeJson(doc, body, DeserializationOption::Filter(filter));
-
-    const char* synced = doc["syncedLyrics"] | "";
-    const char* plain  = doc["plainLyrics"]  | "";
-    if (synced && synced[0]) { r.kind = Kind::Synced; r.text = synced; }
-    else if (plain && plain[0]) { r.kind = Kind::Plain; r.text = plain; }
-    return r;
+    DeserializationError err = deserializeJson(doc, https.getStream(),
+                                               DeserializationOption::Filter(filter));
+    https.end();
+    if (err) { Serial.printf("[lyrics] json %s\n", err.c_str()); return false; }
+    int n = lyricbuf::parse(doc["syncedLyrics"] | "", out);
+    Serial.printf("[lyrics] synced lines=%d\n", n);
+    return n > 0;
 }
 
 }

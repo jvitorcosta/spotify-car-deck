@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
-#include <vector>
 #include "pins.h"
 #include "net/wifi.h"
 #include "spotify/auth.h"
@@ -13,7 +12,6 @@
 #include "ui/theme.h"
 #include "ui/screen_now.h"
 #include "util/interp.h"
-#include "util/lrc.h"
 #include "images/art.h"
 #include "images/walksprite.h"
 #include "images/cache.h"
@@ -22,15 +20,7 @@
 // arrives through core/shared (README "Design & performance history").
 TFT_eSPI tft = TFT_eSPI();
 
-static std::vector<lrc::LrcLine> g_lrcLines;   // synced lyric lines for the shown track
 static char g_topSig[96] = "";                 // last drawn top-strip state
-
-// Current synced lyric line for a playback position ("" if none).
-static const char* currentLyric(uint32_t posMs) {
-    if (g_lrcLines.empty()) return "";
-    int idx = lrc::currentIndex(g_lrcLines, posMs);
-    return (idx >= 0) ? g_lrcLines[idx].text.c_str() : "";
-}
 
 // Pushes the album-art bitmap if it is valid for the track on screen. Check and push happen
 // under one lock so the network task cannot start overwriting the bitmap in between.
@@ -96,21 +86,17 @@ void loop() {
         if (newTrack) {
             shownGen = st.trackGen;
             walkerOn = false;
-            g_lrcLines.clear();
         }
         ui::drawNow(tft, view, theme::typeColor(st.pokeType));
         g_topSig[0] = '\0';
         pushArtIfValid(shownGen);   // back from a status screen: same track's art is still valid
-        ui::drawLyricArea(tft, currentLyric(view.progressMs));
+        char line[160];
+        shared::lyricLine(shownGen, view.progressMs, line, sizeof(line));
+        ui::drawLyricArea(tft, line);
         mem::log("track");
     } else {
         // Media arriving from the network task for the track on screen.
         if (shared::takeArt(shownGen)) pushArtIfValid(shownGen);
-        std::vector<lrc::LrcLine>* lines = nullptr;
-        if (shared::takeLyrics(shownGen, &lines)) {
-            g_lrcLines = std::move(*lines);
-            delete lines;
-        }
         if (shared::takeWalker(shownGen)) walkerOn = true;
 
         static uint32_t lastDraw = 0, lastWalk = 0, lastCd = 0, lastTick = 0, animMs = 0;
@@ -135,7 +121,9 @@ void loop() {
         if (now - lastDraw >= 250) {
             lastDraw = now;
             ui::drawProgressRegion(tft, view);
-            ui::drawLyricArea(tft, currentLyric(view.progressMs));
+            char line[160];
+            shared::lyricLine(shownGen, view.progressMs, line, sizeof(line));
+            ui::drawLyricArea(tft, line);
         }
         if (walkerOn && now - lastWalk >= 120) {     // ~8 fps walker
             lastWalk = now;

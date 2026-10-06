@@ -1,7 +1,6 @@
 #include "nettask.h"
 #include <Arduino.h>
 #include <esp_system.h>
-#include <vector>
 #include "shared.h"
 #include "mem.h"
 #include "../net/wifi.h"
@@ -11,7 +10,6 @@
 #include "../lyrics/lrclib.h"
 #include "../pokemon/pick.h"
 #include "../pokemon/dex.h"
-#include "../util/lrc.h"
 #include "../util/netplan.h"
 
 // History (README "Design & performance history"): these calls used to run inline in
@@ -72,12 +70,10 @@ static void doStep(netplan::Step step) {
         }
         case netplan::Step::Lyrics: {
             tick();
-            lyricsvc::Result r = lyricsvc::fetch(s_st);
-            auto* lines = new std::vector<lrc::LrcLine>();
-            if (r.kind == lyricsvc::Kind::Synced) *lines = lrc::parse(r.text);
-            Serial.printf("[lyrics] kind=%d lines=%u\n", (int)r.kind, (unsigned)lines->size());
-            shared::postLyrics(gen, lines);
+            shared::lyricsInvalidate();       // UI stops reading the arena before we overwrite it
+            if (lyricsvc::fetchInto(s_st, lyricsvc::arena())) shared::postLyrics(gen);
             tock("lyrics");
+            mem::log("lyrics");
             break;
         }
         case netplan::Step::Prefetch: {

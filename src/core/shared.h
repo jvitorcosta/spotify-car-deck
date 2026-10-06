@@ -1,8 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include <vector>
 #include "app_state.h"
-#include "../util/lrc.h"
 
 // State shared between the network task (core 0) and the UI loop (core 1), behind one
 // FreeRTOS mutex. Why two tasks: with all HTTPS inline, every Spotify poll froze the
@@ -24,11 +22,14 @@ void postArt(uint32_t gen);
 bool takeArt(uint32_t gen);            // true once per arrival (UI)
 bool artValidLocked(uint32_t gen);     // caller holds the lock (UI redraw + push)
 
-// Per-track media mailbox. Each result is tagged with the trackGen it was fetched for;
-// post* frees it if the published track has already moved on (rapid skipping).
-void postLyrics(uint32_t gen, std::vector<lrc::LrcLine>* lines);    // takes ownership
-void postWalker(uint32_t gen);                                       // walker promoted
-// UI side: take a result for `gen`; ownership moves to the caller. False if none.
-bool takeLyrics(uint32_t gen, std::vector<lrc::LrcLine>** lines);
+// Lyrics live in lyricsvc::arena(). The network task calls lyricsInvalidate() before parsing
+// into it and postLyrics(gen) after; the UI copies the current line under the lock.
+void lyricsInvalidate();
+void postLyrics(uint32_t gen);
+// Copies the synced line for posMs into out ("" if none / not valid for gen).
+void lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len);
+
+// Walker: posted once the new walker is promoted for the track generation.
+void postWalker(uint32_t gen);
 bool takeWalker(uint32_t gen);
 }

@@ -1,4 +1,6 @@
 #include "shared.h"
+#include <string.h>
+#include "../lyrics/lrclib.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -8,8 +10,7 @@ static SemaphoreHandle_t g_mtx = nullptr;
 static AppState g_state{};
 static uint32_t g_artGen = 0;  // gen the bitmap is valid for (0 = invalid)
 static bool g_artNew = false;
-static std::vector<lrc::LrcLine>* g_lyrics = nullptr;
-static uint32_t g_lyricsGen = 0;
+static uint32_t g_lyricsGen = 0;   // gen the arena is valid for (0 = invalid)
 static uint32_t g_walkerGen = 0;
 
 void begin() { if (!g_mtx) g_mtx = xSemaphoreCreateMutex(); }
@@ -20,12 +21,6 @@ void publish(const AppState& st) { Guard g; g_state = st; }
 void snapshot(AppState& out) { Guard g; out = g_state; }
 
 
-void postLyrics(uint32_t gen, std::vector<lrc::LrcLine>* lines) {
-    Guard g;
-    if (gen != g_state.trackGen) { delete lines; return; }
-    delete g_lyrics;
-    g_lyrics = lines; g_lyricsGen = gen;
-}
 
 void postWalker(uint32_t gen) { Guard g; if (gen == g_state.trackGen) g_walkerGen = gen; }
 
@@ -47,12 +42,17 @@ bool takeArt(uint32_t gen) {
 
 bool artValidLocked(uint32_t gen) { return gen != 0 && g_artGen == gen; }
 
-bool takeLyrics(uint32_t gen, std::vector<lrc::LrcLine>** lines) {
+void lyricsInvalidate() { Guard g; g_lyricsGen = 0; }
+
+void postLyrics(uint32_t gen) { Guard g; if (gen == g_state.trackGen) g_lyricsGen = gen; }
+
+void lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len) {
     Guard g;
-    if (!g_lyrics || g_lyricsGen != gen) return false;
-    *lines = g_lyrics;
-    g_lyrics = nullptr;
-    return true;
+    out[0] = '\0';
+    if (gen == 0 || g_lyricsGen != gen) return;
+    const lyricbuf::Lyrics& l = lyricsvc::arena();
+    strncpy(out, lyricbuf::lineText(l, lyricbuf::currentIndex(l, posMs)), len - 1);
+    out[len - 1] = '\0';
 }
 
 bool takeWalker(uint32_t gen) {
