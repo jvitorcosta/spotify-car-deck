@@ -17,7 +17,7 @@ flicker, no per-frame network/decode, and bounded RAM on the no-PSRAM ESP32.
 
 | Region | Rect | Content |
 |---|---|---|
-| Top bar | 0,0 → 320×22 | unchanged ("NOW PLAYING", device) |
+| Top bar | 0,0 → 320×22 | "NOW PLAYING" + spinning CD · shuffle/repeat · device icon + name |
 | Album art | panel 8,26 104×104 | unchanged |
 | Track panel | 118,26 194×48 | title, artist (unchanged) |
 | Context panel | 118,78 194×52 | "From:" + context (ends y=130, aligned with art) |
@@ -30,6 +30,28 @@ Status panel contents:
 - **HP bar:** x16, y190, w288, h12 — drains from the left, green/yellow/red (unchanged
   semantics, longer bar).
 - **Lyric area:** y≈204–236, full panel width, current synced line, up to 2 lines.
+
+### 2.1 Pixel icons
+
+The built-in fonts are ASCII-only, so "emoji" are small pixel-art icons (1-bit bitmaps,
+12×12, drawn with `drawBitmap` in a theme colour), except the CD which is drawn
+procedurally:
+
+- **Spinning CD** right after "NOW PLAYING" in the top bar: disc + hole + a highlight
+  wedge rotated through 4 frames (~6 fps) while playing; frozen when paused, so it
+  doubles as the play/pause indicator. Repaints only its own ~14×14 rect.
+- **Music notes** `♪` before and after the current lyric line (hidden when there is no
+  line).
+- **Device icon** before the device name, chosen from Spotify's device `type`:
+  Smartphone/Tablet → phone, Computer → laptop, Speaker/AVR/CastAudio → speaker,
+  TV/CastVideo/STB/GameConsole → TV, Automobile/CarThing → car, anything else →
+  speaker. Requires storing `device.type` in `AppState` (`deviceType[16]`) from the
+  existing PlayerDetails poll.
+- **Shuffle / repeat** icons in the top bar left of the device icon: drawn in cream
+  when on, dim navy-grey when off; repeat-one (track) adds a tiny "1". Data already
+  polled every ~12 s; the top bar redraws when any of these change.
+
+Device-type → icon mapping is a pure, host-tested function (`ui/icons` pure part).
 
 The old left Pokémon box and the static 48 px sprite are removed. Exact y values may
 shift ±2 px during implementation to fit font metrics; region order is fixed.
@@ -89,7 +111,8 @@ song still has a walker.
 | `util/walkanim` | pure, host-tested | Frame index for an elapsed time + durations; shared-bbox crop + scale + frame-skip arithmetic. |
 | `images/png` | device | `loadWalkSheet(dex)` (PMD path) alongside existing `loadWalkSprite` (fallback); exposes current frame buffer/mask/size/count. |
 | `images/cache` | device | Generalised to a path prefix so `/pmd/` entries sit beside sprite cache. |
-| `ui/screen_now` | device | Merged status panel layout; walker draws the current frame. |
+| `ui/icons` | pure map + device draw | Device-type → icon mapping (host-tested); 12×12 bitmaps; procedural spinning CD. |
+| `ui/screen_now` | device | Merged status panel layout; top-bar icons; walker draws the current frame. |
 | `main.cpp` | device | On track change: PMD load → fallback; heap log; drive frame time. |
 
 ## 5. Error handling
@@ -109,7 +132,10 @@ personal and non-commercial.
 
 - Host (Unity via `.devtools/ntest.ps1`): `test_animdata` (simple Walk, CopyOf,
   missing Walk, multiple durations), `test_walkanim` (frame-at-time wraparound, paused,
-  bbox crop union, downscale to band, frame-skip under the cap).
+  bbox crop union, downscale to band, frame-skip under the cap), `test_icons`
+  (device-type mapping incl. unknown/empty).
+- Device: CD spins while playing and freezes on pause; shuffle/repeat icons follow the
+  phone within ~12 s; device icon matches the active device.
 - Device: serial shows `[walk] pmd …` for most songs and `[walk] fallback` when a sheet
   is absent; visual check that the Pokémon walks right on a full-width bar with no
   flicker; heap log stable across many track changes.
