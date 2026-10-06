@@ -68,6 +68,14 @@ controls (code), deck UI, live data, album art, Pokémon sprite). Plus live fixe
 `Lv.`=popularity; small sprite-pipeline polish (single load per track, alpha-edge
 fringe, `hasAlpha()`-gated colour-key fallback).
 
+- **2026-10-06 redesign:** superseded by
+  `docs/superpowers/plans/2026-10-06-gen3-battle-ui-pmd-walker.md` — Gen-3 battle UI
+  (info/status/dialogue boxes, pixel icons) and a PMD SpriteCollab walk cycle with the
+  PokeAPI walker as fallback. The left Pokémon box and static sprite are gone.
+- **2026-10-06 performance:** networking moved to a core-0 task with progressive track
+  change, bundled Pokédex and walker prefetch — see `README.md` "Design & performance
+  history" and `docs/superpowers/specs/2026-10-06-perf-network-task-design.md`.
+
 **Toolchain (this machine):** build/test via `.devtools/pio.ps1` and `.devtools/ntest.ps1`;
 board on COM11; PlatformIO core on `D:\.platformio`.
 
