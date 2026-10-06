@@ -90,6 +90,7 @@ bool drawSprite(TFT_eSPI& t, const char* url, int dex, int cx, int cy) {
 
     int rc = png.openRAM(data, (int)n, pngDraw);
     if (rc != PNG_SUCCESS) { free(data); return false; }
+    if (png.getWidth() > 256) { png.close(); free(data); return false; }  // lineBuf[256]
 
     g_tft = &t;
     int w = png.getWidth(), h = png.getHeight();
@@ -108,22 +109,23 @@ static uint8_t  g_walkMask[WALK_MAX * WALK_MAX];
 static int g_walkW = 0, g_walkH = 0;
 static bool g_walkReady = false;
 
-// Full-size decode scratch, heap-allocated only while loading.
+// Full-size decode scratch, heap-allocated (to the real size) only while loading.
 static const int FULL_MAX = 128;
 static uint16_t* g_full = nullptr;
 static uint8_t*  g_fullMask = nullptr;
+static int g_fullW = 0, g_fullH = 0;
 
 static int pngFullDraw(PNGDRAW* d) {
-    if (d->y >= FULL_MAX) return 1;
-    int w = d->iWidth < FULL_MAX ? d->iWidth : FULL_MAX;
-    uint16_t line[256];
-    uint8_t bits[(256 + 7) / 8];
+    if (d->y >= g_fullH) return 1;
+    int w = g_fullW;   // == d->iWidth (open rejects anything wider than FULL_MAX)
+    uint16_t line[FULL_MAX];
+    uint8_t bits[(FULL_MAX + 7) / 8];
     memset(bits, 0xff, sizeof(bits));   // formats PNGdec can't mask -> opaque
     png.getLineAsRGB565(d, line, PNG_RGB565_BIG_ENDIAN, 0x0000);
     png.getAlphaMask(d, bits, 128);
     for (int i = 0; i < w; ++i) {
-        g_full[d->y * FULL_MAX + i]     = line[i];
-        g_fullMask[d->y * FULL_MAX + i] = (bits[i >> 3] >> (7 - (i & 7))) & 1;
+        g_full[d->y * w + i]     = line[i];
+        g_fullMask[d->y * w + i] = (bits[i >> 3] >> (7 - (i & 7))) & 1;
     }
     return 1;
 }
@@ -135,30 +137,30 @@ bool loadWalkSprite(const char* url, int dex, int maxSize) {
     size_t n = 0;
     if (!loadSpriteBytes(dex, url, &data, &n)) return false;
 
-    g_full = (uint16_t*)malloc(FULL_MAX * FULL_MAX * sizeof(uint16_t));
-    g_fullMask = (uint8_t*)malloc(FULL_MAX * FULL_MAX);
     bool ok = false;
-    if (g_fullMask) memset(g_fullMask, 0, FULL_MAX * FULL_MAX);   // undecoded rows = clear
-    if (g_full && g_fullMask && png.openRAM(data, (int)n, pngFullDraw) == PNG_SUCCESS) {
-        int fw = png.getWidth(), fh = png.getHeight();
-        if (fw > FULL_MAX) fw = FULL_MAX;
-        if (fh > FULL_MAX) fh = FULL_MAX;
+    if (png.openRAM(data, (int)n, pngFullDraw) != PNG_SUCCESS) { free(data); return false; }
+    int fw = png.getWidth(), fh = png.getHeight();
+    if (fw > FULL_MAX || fh > FULL_MAX) { png.close(); free(data); return false; }
+    g_fullW = fw; g_fullH = fh;
+    g_full = (uint16_t*)malloc(fw * fh * sizeof(uint16_t));
+    g_fullMask = (uint8_t*)calloc(fw * fh, 1);      // undecoded rows = clear
+    if (!g_full || !g_fullMask) {
+        Serial.printf("[walk] no heap for %dx%d sprite\n", fw, fh);
+    } else {
         png.decode(nullptr, 0);
-        png.close();
-
         // No usable alpha (corner reads opaque): key out the corner color instead.
         if (g_fullMask[0]) {
             uint16_t key = g_full[0];
             for (int y = 0; y < fh; ++y)
                 for (int x = 0; x < fw; ++x)
-                    g_fullMask[y * FULL_MAX + x] = g_full[y * FULL_MAX + x] != key;
+                    g_fullMask[y * fw + x] = g_full[y * fw + x] != key;
         }
 
         // Crop to the opaque bounding box so the creature fills the walker.
         int x0 = fw, y0 = fh, x1 = -1, y1 = -1;
         for (int y = 0; y < fh; ++y)
             for (int x = 0; x < fw; ++x)
-                if (g_fullMask[y * FULL_MAX + x]) {
+                if (g_fullMask[y * fw + x]) {
                     if (x < x0) x0 = x;
                     if (x > x1) x1 = x;
                     if (y < y0) y0 = y;
@@ -174,8 +176,8 @@ bool loadWalkSprite(const char* url, int dex, int maxSize) {
                 int sy = y0 + y * bh / oh;
                 for (int x = 0; x < ow; ++x) {
                     int sx = x0 + x * bw / ow;
-                    g_walk[y * ow + x]     = g_full[sy * FULL_MAX + sx];
-                    g_walkMask[y * ow + x] = g_fullMask[sy * FULL_MAX + sx];
+                    g_walk[y * ow + x]     = g_full[sy * fw + sx];
+                    g_walkMask[y * ow + x] = g_fullMask[sy * fw + sx];
                 }
             }
             g_walkW = ow;
@@ -183,6 +185,7 @@ bool loadWalkSprite(const char* url, int dex, int maxSize) {
             g_walkReady = ok = true;
         }
     }
+    png.close();
     free(g_full);     g_full = nullptr;
     free(g_fullMask); g_fullMask = nullptr;
     free(data);

@@ -17,21 +17,20 @@ bool pickRandom(AppState& st) {
 
         WiFiClientSecure client; client.setInsecure();
         HTTPClient https;
+        https.useHTTP10(true);   // no chunking -> the raw stream is plain JSON
         if (!https.begin(client, url)) continue;
         int rc = https.GET();
         if (rc != 200) { Serial.printf("[poke] GET rc=%d (retry)\n", rc); https.end(); continue; }
 
-        // Read the full body (getString de-chunks; parsing the raw getStream()
-        // on a chunked response silently yields an empty document). Then filter
-        // down to just name + first type so the DOC stays tiny.
-        String body = https.getString();
-        https.end();
+        // Stream-parse through a filter (name + first type) so the multi-hundred-KB
+        // body is never held in RAM; a full getString() fails on a fragmented heap.
         JsonDocument filter;
         filter["name"] = true;
         filter["types"][0]["type"]["name"] = true;
         JsonDocument doc;
-        DeserializationError err =
-            deserializeJson(doc, body, DeserializationOption::Filter(filter));
+        DeserializationError err = deserializeJson(doc, https.getStream(),
+                                                   DeserializationOption::Filter(filter));
+        https.end();
         if (err) { Serial.printf("[poke] json err %s (retry)\n", err.c_str()); continue; }
 
         const char* nm = doc["name"] | "";

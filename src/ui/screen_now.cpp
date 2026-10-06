@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "../util/text.h"
 #include "../util/interp.h"
+#include "../util/walkrect.h"
 #include "../images/png.h"
 
 namespace ui {
@@ -56,8 +57,9 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
 // The walker is composed onto the cream panel in RAM and pushed as one rect.
 // The rect also covers where it stood last frame, so moving erases its trail.
 void drawWalker(TFT_eSPI& t, const AppState& st, int step) {
-    static int prevX = -1, prevY = 0, prevW = 0, prevH = 0;
-    static uint16_t buf[(img::WALK_MAX + 16) * (img::WALK_MAX + 2)];
+    static const int SLACK = 8;
+    static walkrect::Rect prev{0, 0, 0, 0};
+    static uint16_t buf[(img::WALK_MAX + 2 * SLACK) * (img::WALK_MAX + 1 + 2 * SLACK)];
     if (!img::walkReady()) return;
     const uint16_t* spr = img::walkBuffer();
     const uint8_t* msk = img::walkMask();
@@ -70,30 +72,22 @@ void drawWalker(TFT_eSPI& t, const AppState& st, int step) {
     bool mirror = (step / 4) % 2;                 // turn every few frames = "step"
     int x0 = cx - w / 2, y0 = HP_Y - h - bob;     // feet rest on the bar top
 
-    // Union of the old and new rects; if it jumped (seek / new song), clear the old.
-    int ux0 = x0, uy0 = HP_Y - h - 1, ux1 = x0 + w, uy1 = HP_Y;
-    if (prevX >= 0) {
-        int px1 = prevX + prevW;
-        if (prevX >= ux0 - 8 && px1 <= ux1 + 8 && prevY >= uy0 - 1) {
-            if (prevX < ux0) ux0 = prevX;
-            if (px1 > ux1) ux1 = px1;
-            if (prevY < uy0) uy0 = prevY;
-        } else {
-            t.fillRect(prevX, prevY, prevW, prevH, theme::GBA_CREAM);
-        }
-    }
-    int bw = ux1 - ux0, bh = uy1 - uy0;
+    // Sprite rect includes the 1px bob headroom; union with last frame's rect
+    // so moving erases the trail (a far jump clears the old rect instead).
+    walkrect::Plan p = walkrect::plan(prev, {x0, HP_Y - h - 1, w, h + 1}, SLACK);
+    if (p.clearPrev) t.fillRect(prev.x, prev.y, prev.w, prev.h, theme::GBA_CREAM);
+    const walkrect::Rect& r = p.push;
     const uint16_t creamBE = (uint16_t)((theme::GBA_CREAM >> 8) | (theme::GBA_CREAM << 8));
-    for (int i = 0; i < bw * bh; ++i) buf[i] = creamBE;
+    for (int i = 0; i < r.w * r.h; ++i) buf[i] = creamBE;
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
             int sx = mirror ? (w - 1 - x) : x;
             if (!msk[y * w + sx]) continue;
-            int bx = x0 + x - ux0, by = y0 + y - uy0;
-            if (bx >= 0 && bx < bw && by >= 0 && by < bh) buf[by * bw + bx] = spr[y * w + sx];
+            int bx = x0 + x - r.x, by = y0 + y - r.y;
+            if (bx >= 0 && bx < r.w && by >= 0 && by < r.h) buf[by * r.w + bx] = spr[y * w + sx];
         }
-    t.pushImage(ux0, uy0, bw, bh, buf);
-    prevX = ux0; prevY = uy0; prevW = bw; prevH = bh;
+    t.pushImage(r.x, r.y, r.w, r.h, buf);
+    prev = p.next;
 }
 
 // Current synced lyric line, wrapped to up to two centered lines in the area
