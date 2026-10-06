@@ -56,9 +56,14 @@ the real panel, which renders colours differently from a PC screen):
 - **EXP bar:** 3 px, blue `#40C8F8` on dark.
 - **Dialogue box:** 3 px dark-teal frame `#284860` with an inner light-teal line
   `#68A0B8`, white `#F8F8F8` rounded interior, text `#404040` with shadow `#D0D0D0`.
-- **Top strip:** dark `#283038`, cream text with shadow.
-- **Status screens** ("No signal...", "Nothing playing") use the dialogue-box style
-  centred on the battle background.
+- **Top strip:** dark `#283038`, cream text with shadow. The title reads **"NOW PLAYING"**
+  while playing and **"PAUSED"** while paused (the CD freezes too); the strip redraws when the
+  play state changes. *(Added 2026-10-06.)*
+- **Status screens** ("No signal...", "Nothing playing"): battle background, **Pikachu** standing
+  on a grass battle platform (2× nearest-neighbour), and the message in a dialogue box below.
+  The sprite is **bundled in flash** (`tools/gen_status_sprite.py` → `src/ui/status_sprite.inc`:
+  cropped RGB565 + 1-bit mask, ~6 KB flash, no RAM), because these screens show exactly when
+  nothing can be downloaded. *(Added 2026-10-06.)*
 
 ### 2.1 Pixel icons
 
