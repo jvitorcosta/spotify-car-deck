@@ -145,9 +145,13 @@ bool poll(AppState& st) {
 static void onPlayer(PlayerDetails pd) {
     AppState& st = *target;
     copyStr(st.deviceName, pd.device.name, sizeof(st.deviceName));
+    copyStr(st.deviceType, pd.device.type, sizeof(st.deviceType));
     st.volume  = pd.device.volumePercent;
     st.shuffle = pd.shuffleState;
-    st.repeat  = (int)pd.repeateState;
+    // Library enum is repeat_track=0, repeat_context=1, repeat_off=2; ours makes the
+    // zero-initialised state mean "off" so nothing lights up before the first poll.
+    st.repeat  = pd.repeateState == repeat_track   ? 2
+               : pd.repeateState == repeat_context ? 1 : 0;
 }
 
 void pollPlayerDetails(AppState& st) {
