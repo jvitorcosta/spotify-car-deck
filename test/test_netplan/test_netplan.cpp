@@ -114,6 +114,12 @@ void test_health_first_call_failing_starts_clock() {
     netplan::Health h;
     TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 900000));
 }
+void test_stale_after_limit_and_handles_wrap() {
+    TEST_ASSERT_FALSE(netplan::stale(10000, 0, 20000));        // never polled: not "stale"
+    TEST_ASSERT_FALSE(netplan::stale(30000, 10000, 20000));
+    TEST_ASSERT_TRUE(netplan::stale(30001, 10000, 20000));
+    TEST_ASSERT_TRUE(netplan::stale(5000, 0xFFFFF000u, 2000)); // millis() wrapped
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_first_track_bumps_generation);
@@ -131,5 +137,6 @@ int main(int, char**) {
     RUN_TEST(test_health_restart_after_180s_with_wifi_up);
     RUN_TEST(test_health_wifi_down_never_restarts_and_resets_timer);
     RUN_TEST(test_health_first_call_failing_starts_clock);
+    RUN_TEST(test_stale_after_limit_and_handles_wrap);
     return UNITY_END();
 }

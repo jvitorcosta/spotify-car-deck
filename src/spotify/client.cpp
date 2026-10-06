@@ -23,6 +23,7 @@ static void onPlaying(CurrentlyPlaying cp) {
     // titles; accents are folded to ASCII at display time instead.
     if (strncmp(st.trackName, cp.trackName, sizeof(st.trackName)) != 0) trackChanged = true;
     copyStr(st.trackName, cp.trackName, sizeof(st.trackName));
+    copyStr(st.trackUri, cp.trackUri, sizeof(st.trackUri));
     copyStr(st.artist, cp.numArtists > 0 ? cp.artists[0].artistName : nullptr, sizeof(st.artist));
     copyStr(st.album, cp.albumName, sizeof(st.album));
     // choose the ~300px image (index 1 is usually 300px; fall back to 0)
@@ -38,6 +39,7 @@ static void onPlaying(CurrentlyPlaying cp) {
 
 void begin() {
     client.setInsecure();
+    client.setHandshakeTimeout(8);   // default 120 s froze polls on a half-dead hotspot
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;   // PC-obtained token from config.h
     // NOTE: SpotifyArduino's ctor calls setRefreshToken(), which reads its _refreshToken

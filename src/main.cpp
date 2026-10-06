@@ -12,6 +12,7 @@
 #include "ui/theme.h"
 #include "ui/screen_now.h"
 #include "util/interp.h"
+#include "util/netplan.h"
 #include "images/art.h"
 #include "images/walksprite.h"
 #include "images/cache.h"
@@ -43,6 +44,7 @@ void setup() {
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.drawString("Connecting WiFi...", 10, 10, 2);
 
+    bool spotifyReady = false;
     if (net::connectAny()) {
         mem::log("boot+wifi");
         tft.fillScreen(TFT_BLACK);
@@ -52,10 +54,11 @@ void setup() {
         }
         spauth::runSetupPortalIfNeeded();
         spclient::begin();
-        nettask::start();
+        spotifyReady = true;
     } else {
-        tft.drawString("WiFi FAILED", 10, 40, 2);
+        tft.drawString("WiFi not found - retrying...", 10, 40, 2);
     }
+    nettask::start(spotifyReady);   // always: it keeps retrying WiFi if the hotspot is late
 }
 
 void loop() {
@@ -67,7 +70,8 @@ void loop() {
 
     // Screen mode: deck when playing/paused; a status screen when offline or stopped.
     int mode = 0;   // 0 = deck, 1 = offline, 2 = nothing playing
-    if (!net::isOnline() || st.status == PlaybackStatus::Offline) mode = 1;
+    if (!net::isOnline() || st.status == PlaybackStatus::Offline ||
+        netplan::stale(millis(), st.lastPollOkMs, 20000)) mode = 1;
     else if (st.status == PlaybackStatus::Stopped) mode = 2;
 
     static int lastMode = -1;

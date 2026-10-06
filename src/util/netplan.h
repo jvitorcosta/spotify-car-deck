@@ -58,6 +58,11 @@ private:
     bool paused_ = false;
 };
 
+// True when a successful poll happened (lastOkMs != 0) more than limitMs ago (wrap-safe).
+inline bool stale(uint32_t nowMs, uint32_t lastOkMs, uint32_t limitMs) {
+    return lastOkMs != 0 && nowMs - lastOkMs > limitMs;
+}
+
 enum class Step { None, Walk, Art, Lyrics, Prefetch };
 struct Work { bool walk, art, lyrics, prefetch; };   // true = still to do
 
