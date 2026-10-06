@@ -75,7 +75,7 @@ One FreeRTOS mutex guards:
 
 ### 3.5 Bundled Pokédex (`pokemon/dex`, pure)
 
-- `.devtools/gen_dex.py` (dev-time) downloads PokéAPI CSVs
+- `tools/gen_dex.py` (dev-time) downloads PokéAPI CSVs
   (`pokemon_species_names.csv` English, `pokemon_types.csv` slot 1, `types.csv`) and
   writes `src/pokemon/dex_data.inc`: 1025 `{name, typeIndex}` entries, names folded
   to ASCII at generation time (`♀`→` F`, `♂`→` M`, accents removed).

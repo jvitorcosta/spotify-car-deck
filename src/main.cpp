@@ -12,7 +12,9 @@
 #include "images/jpeg.h"
 #include "images/walksprite.h"
 #include "images/cache.h"
-#include "pokemon/pokeapi.h"
+#include "pokemon/pick.h"
+#include "pokemon/dex.h"
+#include <esp_system.h>
 #include "lyrics/lrclib.h"
 #include "util/lrc.h"
 #include <vector>
@@ -91,7 +93,7 @@ void loop() {
     } else if (lastMode != 0 || strcmp(lastTrack, g_state.trackName) != 0) {
         // Full deck redraw: on track change (and when returning from a status screen).
         lastMode = 0;
-        pokeapi::pickRandom(g_state);    // fresh random Pokemon each play
+        pick::choose(g_state, dex::fromRandom(esp_random()));   // bundled dex: no network
         view.pokedexNum = g_state.pokedexNum;
         strncpy(view.pokeName, g_state.pokeName, sizeof(view.pokeName));
         strncpy(view.pokeType, g_state.pokeType, sizeof(view.pokeType));
