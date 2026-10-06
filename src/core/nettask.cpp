@@ -33,11 +33,17 @@ static void tock(const char* what) {
 
 static void onTrackChange() {
     s_st.trackGen = s_gen.gen();
-    pick::choose(s_st, dex::fromRandom(esp_random()));
+    bool prefetched = s_prefetchDex > 0 && walk::stagedDex() == s_prefetchDex;
+    pick::choose(s_st, prefetched ? s_prefetchDex : dex::fromRandom(esp_random()));
     s_prefetchDex = 0;
     shared::publish(s_st);                 // UI shows the new title + Pokemon right away
-    s_work = netplan::freshWork(false);
-    Serial.printf("[net] track gen=%u\n", (unsigned)s_st.trackGen);
+    if (prefetched) {
+        { shared::Guard g; walk::promote(); }
+        shared::postWalker(s_st.trackGen); // walker appears together with the title
+    }
+    s_work = netplan::freshWork(prefetched);
+    Serial.printf("[net] track gen=%u%s\n", (unsigned)s_st.trackGen,
+                  prefetched ? " (prefetched walker)" : "");
 }
 
 static void doStep(netplan::Step step) {
@@ -61,6 +67,8 @@ static void doStep(netplan::Step step) {
             bool ok = img::downloadAlbumArt(s_st.albumArtUrl, &jpeg, &len);
             if (ok) shared::postArt(gen, jpeg, len);
             tock(ok ? "art" : "art failed");
+            Serial.printf("[heap] art len=%d free=%u max=%u\n", len,
+                          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
             break;
         }
         case netplan::Step::Lyrics: {
@@ -73,7 +81,18 @@ static void doStep(netplan::Step step) {
             tock("lyrics");
             break;
         }
-        case netplan::Step::Prefetch:   // implemented in Task 12
+        case netplan::Step::Prefetch: {
+            // The Pokemon is random and independent of the song, so the next one can be
+            // chosen and its walker loaded now, while this song plays.
+            int n = dex::fromRandom(esp_random());
+            char url[160];
+            dex::spriteUrl(n, url, sizeof(url));
+            tick();
+            bool ok = walk::loadPmd(n) || walk::loadFallback(url, n);
+            s_prefetchDex = ok ? n : 0;
+            tock(ok ? "prefetch" : "prefetch failed");
+            break;
+        }
         case netplan::Step::None:
             break;
     }
@@ -94,6 +113,9 @@ static void run(void*) {
             spclient::poll(s_st);
             tock("poll");
             bool ok = s_st.status != PlaybackStatus::Offline;
+            if (!ok) Serial.printf("[heap] poll failed: free=%u max=%u minEver=%u\n",
+                                   (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(),
+                                   (unsigned)ESP.getMinFreeHeap());
             if (!s_link.update(ok) && !ok) s_st.status = before;   // isolated failure: keep last state
             if (s_gen.update(s_st.trackName)) onTrackChange();
             else shared::publish(s_st);
