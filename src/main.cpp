@@ -109,6 +109,7 @@ void loop() {
         ui::drawNow(tft, view, accent);
         img::drawAlbumArt(tft, 11, 29, 98, 98);
         img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 185);
+        img::loadWalkSprite(g_state.pokeSpriteUrl, g_state.pokedexNum, ui::WALK_SIZE);
         ui::drawLyricArea(tft, currentLyric(view.progressMs));
 
         strcpy(lastTrack, g_state.trackName);
@@ -118,6 +119,13 @@ void loop() {
             lastDraw = millis();
             ui::drawProgressRegion(tft, view);   // shared with drawNow() — single source
             ui::drawLyricArea(tft, currentLyric(view.progressMs));
+        }
+        static uint32_t lastWalk = 0;
+        static int walkStep = 0;
+        if (millis() - lastWalk >= 120) {   // ~8 fps walk, repaints only the walker rect
+            lastWalk = millis();
+            if (g_state.isPlaying) walkStep++;   // stands still while paused
+            ui::drawWalker(tft, view, walkStep);
         }
     }
     delay(10);

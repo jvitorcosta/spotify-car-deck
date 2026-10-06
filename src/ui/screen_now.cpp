@@ -2,6 +2,8 @@
 #include "widgets.h"
 #include "theme.h"
 #include "../util/text.h"
+#include "../util/interp.h"
+#include "../images/png.h"
 
 namespace ui {
 
@@ -33,10 +35,10 @@ static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font) {
 
 // HP bar DEPLETES from the left (remaining fill anchored right), green/yellow/red,
 // labelled 'HP current/max' (remaining time / total) like a Pokemon life bar.
-// Panel runs tall (to y=238) now that the control row is gone; the lower area is
-// reserved for the walking-Pokemon bar later.
+// The walking Pokemon rides on top of the bar (band between the label and bar).
+static const int HP_X = 126, HP_Y = 176, HP_W = 178, HP_H = 16;
+
 void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
-    panel(t, 118, 120, 194, 118);
     uint32_t rem = (st.durationMs > st.progressMs) ? (st.durationMs - st.progressMs) : 0;
     uint32_t tot = st.durationMs;
     float hpFrac = st.durationMs ? (float)rem / (float)st.durationMs : 1.0f;
@@ -45,14 +47,59 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
              rem / 60000, (rem / 1000) % 60, tot / 60000, (tot / 1000) % 60);
     t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
     t.setTextDatum(TL_DATUM);
-    t.drawString(tbuf, 126, 132, 2);
-    hpBar(t, 126, 164, 178, 20, hpFrac);
+    t.setTextPadding(178);          // overwrite the old label in place (no flicker)
+    t.drawString(tbuf, HP_X, 124, 2);
+    t.setTextPadding(0);
+    hpBar(t, HP_X, HP_Y, HP_W, HP_H, hpFrac);
+}
+
+// The walker is composed onto the cream panel in RAM and pushed as one rect.
+// The rect also covers where it stood last frame, so moving erases its trail.
+void drawWalker(TFT_eSPI& t, const AppState& st, int step) {
+    static int prevX = -1, prevY = 0, prevW = 0, prevH = 0;
+    static uint16_t buf[(img::WALK_MAX + 16) * (img::WALK_MAX + 2)];
+    if (!img::walkReady()) return;
+    const uint16_t* spr = img::walkBuffer();
+    const uint8_t* msk = img::walkMask();
+    int w = img::walkW(), h = img::walkH();
+
+    float frac = st.durationMs ? (float)st.progressMs / (float)st.durationMs : 0.0f;
+    // Stand on the drained/remaining boundary, inside the bar's inner fill area.
+    int cx = interp::walkX(frac, HP_X + 2, HP_W - 4, w);
+    int bob = (step % 2) ? 1 : 0;                 // lift 1px every other frame
+    bool mirror = (step / 4) % 2;                 // turn every few frames = "step"
+    int x0 = cx - w / 2, y0 = HP_Y - h - bob;     // feet rest on the bar top
+
+    // Union of the old and new rects; if it jumped (seek / new song), clear the old.
+    int ux0 = x0, uy0 = HP_Y - h - 1, ux1 = x0 + w, uy1 = HP_Y;
+    if (prevX >= 0) {
+        int px1 = prevX + prevW;
+        if (prevX >= ux0 - 8 && px1 <= ux1 + 8 && prevY >= uy0 - 1) {
+            if (prevX < ux0) ux0 = prevX;
+            if (px1 > ux1) ux1 = px1;
+            if (prevY < uy0) uy0 = prevY;
+        } else {
+            t.fillRect(prevX, prevY, prevW, prevH, theme::GBA_CREAM);
+        }
+    }
+    int bw = ux1 - ux0, bh = uy1 - uy0;
+    const uint16_t creamBE = (uint16_t)((theme::GBA_CREAM >> 8) | (theme::GBA_CREAM << 8));
+    for (int i = 0; i < bw * bh; ++i) buf[i] = creamBE;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            int sx = mirror ? (w - 1 - x) : x;
+            if (!msk[y * w + sx]) continue;
+            int bx = x0 + x - ux0, by = y0 + y - uy0;
+            if (bx >= 0 && bx < bw && by >= 0 && by < bh) buf[by * bw + bx] = spr[y * w + sx];
+        }
+    t.pushImage(ux0, uy0, bw, bh, buf);
+    prevX = ux0; prevY = uy0; prevW = bw; prevH = bh;
 }
 
 // Current synced lyric line, wrapped to up to two centered lines in the area
 // below the HP bar. Empty string clears the area.
 void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
-    const int ax = 123, ay = 192, aw = 184, ah = 44;
+    const int ax = 123, ay = 196, aw = 184, ah = 40;
     t.fillRect(ax, ay, aw, ah, theme::GBA_CREAM);   // clear (inside the HP panel)
     char folded[160];
     txt::asciiFold(currentLine, folded, sizeof(folded));
@@ -78,8 +125,8 @@ void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
         l2 = s.substring(sp + (s[sp] == ' ' ? 1 : 0));
         while (l2.length() > 1 && t.textWidth(l2 + "...", 2) > aw) l2.remove(l2.length() - 1);
         if (t.textWidth(s.substring(sp), 2) > aw) l2 += "...";
-        t.drawString(l1, cx, ay + 12, 2);
-        t.drawString(l2, cx, ay + 30, 2);
+        t.drawString(l1, cx, ay + 10, 2);
+        t.drawString(l2, cx, ay + 28, 2);
     }
     t.setTextDatum(TL_DATUM);
 }
@@ -133,6 +180,7 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     t.drawString("From:", 124, 82, 2);
     t.drawString(fitText(t, st.context[0] ? st.context : "Playlist", RW, 2), 124, 98, 2);
 
+    panel(t, 118, 120, 194, 118);   // HP panel: label, walker band, bar, lyric
     drawProgressRegion(t, st);
 }
 }
