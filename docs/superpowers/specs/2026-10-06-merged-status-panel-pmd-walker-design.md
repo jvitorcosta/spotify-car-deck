@@ -1,35 +1,61 @@
-# Merged Status Panel + PMD Walk-Cycle Walker — Design
+# Gen-3 Battle UI + PMD Walk-Cycle Walker — Design
 
 Date: 2026-10-06. Extends `2026-10-04-pokedeck-esp32-spotify-design.md` (§9 walking
 animation is superseded by §3 below). Builds on the as-built deck (Tasks 1–16).
 
 ## 1. Goal
 
-Make the deck read as one Gen-3 "battle status" box: the song's Pokémon lives on the
-progress bar instead of in a separate static box, and it really walks — a multi-frame
-walk cycle — instead of the bob/flip approximation.
+Make the deck look like a Gen-3 (FireRed/LeafGreen/Emerald) battle screen: battle
+info boxes, shadowed pixel text, the HP bar with its "HP" tag, and the battle dialogue
+box. The song's Pokémon lives on the progress bar instead of in a separate static box,
+and it really walks (a multi-frame walk cycle) instead of the bob/flip approximation.
 
 Success: on device, every song shows its Pokémon walking (real frames when a PMD sheet
-exists, the current bob/flip walker otherwise) along a full-width HP bar, with no
-flicker, no per-frame network/decode, and bounded RAM on the no-PSRAM ESP32.
+exists, the current bob/flip walker otherwise) along a full-width HP bar inside a
+battle-style status box, with the lyric in a battle dialogue box; no flicker, no
+per-frame network/decode, bounded RAM on the no-PSRAM ESP32.
 
 ## 2. Layout (320×240 landscape)
 
-| Region | Rect | Content |
+| Region | Rect (approx.) | Content |
 |---|---|---|
-| Top bar | 0,0 → 320×22 | "NOW PLAYING" + spinning CD · shuffle/repeat · device icon + name |
-| Album art | panel 8,26 104×104 | unchanged |
-| Track panel | 118,26 194×48 | title, artist (unchanged) |
-| Context panel | 118,78 194×52 | "From:" + context (ends y=130, aligned with art) |
-| **Status panel** | **8,134 304×104** | merged Pokémon + HP + lyric (below) |
+| Top strip | 0,0 → 320×20 | "NOW PLAYING" + spinning CD · shuffle/repeat · device icon + name |
+| Album art | box 8,24 98×98 | cover, framed like a battle box |
+| **Info box** | 114,30 198×86 | TRACK TITLE · artist + `Lv.NN` · "From:" context |
+| **Status box** | 8,126 304×70 | Pokémon name + `No.NNNN` · `HP m:ss/m:ss` · walker · HP bar · EXP bar |
+| **Dialogue box** | 4,200 312×38 | ♪ current lyric ♪ (up to 2 lines) |
 
-Status panel contents:
-- **Row y≈138:** Pokémon name (type accent colour, ASCII-folded, truncated) +
-  `No.NNNN` on the left; `HP m:ss/m:ss` (remaining/total) right-aligned.
-- **Walk band y≈154–190:** the walker; feet rest on the bar top.
-- **HP bar:** x16, y190, w288, h12 — drains from the left, green/yellow/red (unchanged
-  semantics, longer bar).
-- **Lyric area:** y≈204–236, full panel width, current synced line, up to 2 lines.
+- **Info box:** track title (caps-folded, truncated), artist with `Lv.NN` right-aligned
+  (`NN` = Spotify track popularity 0–100), then `From: <context>`.
+- **Status box:** row 1 = Pokémon name (type accent colour) + `No.NNNN` left,
+  `HP m:ss/m:ss` (remaining/total) right; walk band (~32 px) where the walker stands
+  on the bar; HP bar (x≈16, w≈288, h≈10) draining from the left; a 3 px **EXP bar**
+  under it showing Spotify volume %.
+- **Dialogue box:** current synced lyric line, centred, up to 2 lines in font 2,
+  ♪ icons either side; empty box when there is no line.
+- No gender symbol (would need an extra PokéAPI species request per song).
+
+### 2.0 Gen-3 battle style
+
+Applies to every box (palette values approximate the GBA games; final values tuned on
+the real panel, which renders colours differently from a PC screen):
+
+- **Background:** sky `#A8D8F8` upper half, grass `#88C878` lower half with a slightly
+  darker horizon stripe; mostly hidden behind boxes, visible in gaps.
+- **Info/status boxes:** cream fill `#F8F8D8`, 2 px dark border `#404848`, a 3 px
+  offset drop shadow `#587060`, and a **slanted tab** on the outer edge (right end of
+  the info box, left end of the status box) like the opponent/player boxes.
+- **Text:** dark grey `#404040` with a 1 px down-right shadow `#D8D0B0` (drawn twice).
+  Dynamic text (HP time) clears its own rect before redrawing.
+- **HP bar:** dark tag `#484848` with "HP" in amber `#F8B800` on the left; fill green
+  `#58D080`, yellow `#F8C800` (≤50%), red `#F85838` (≤20%), each with a 2 px lighter
+  shine line on top; empty part dark `#506058`.
+- **EXP bar:** 3 px, blue `#40C8F8` on dark.
+- **Dialogue box:** 3 px dark-teal frame `#284860` with an inner light-teal line
+  `#68A0B8`, white `#F8F8F8` rounded interior, text `#404040` with shadow `#D0D0D0`.
+- **Top strip:** dark `#283038`, cream text with shadow.
+- **Status screens** ("No signal...", "Nothing playing") use the dialogue-box style
+  centred on the battle background.
 
 ### 2.1 Pixel icons
 
@@ -40,8 +66,8 @@ procedurally:
 - **Spinning CD** right after "NOW PLAYING" in the top bar: disc + hole + a highlight
   wedge rotated through 4 frames (~6 fps) while playing; frozen when paused, so it
   doubles as the play/pause indicator. Repaints only its own ~14×14 rect.
-- **Music notes** `♪` before and after the current lyric line (hidden when there is no
-  line).
+- **Music notes** `♪` either side of the lyric in the dialogue box (hidden when there
+  is no line).
 - **Device icon** before the device name, chosen from Spotify's device `type`:
   Smartphone/Tablet → phone, Computer → laptop, Speaker/AVR/CastAudio → speaker,
   TV/CastVideo/STB/GameConsole → TV, Automobile/CarThing → car, anything else →
@@ -53,8 +79,9 @@ procedurally:
 
 Device-type → icon mapping is a pure, host-tested function (`ui/icons` pure part).
 
-The old left Pokémon box and the static 48 px sprite are removed. Exact y values may
-shift ±2 px during implementation to fit font metrics; region order is fixed.
+The old left Pokémon box, the separate track/context panels and the static 48 px sprite
+are removed. Exact coordinates may shift a few px during implementation to fit font
+metrics; region order is fixed.
 
 ## 3. Walker
 
@@ -112,7 +139,9 @@ song still has a walker.
 | `images/png` | device | `loadWalkSheet(dex)` (PMD path) alongside existing `loadWalkSprite` (fallback); exposes current frame buffer/mask/size/count. |
 | `images/cache` | device | Generalised to a path prefix so `/pmd/` entries sit beside sprite cache. |
 | `ui/icons` | pure map + device draw | Device-type → icon mapping (host-tested); 12×12 bitmaps; procedural spinning CD. |
-| `ui/screen_now` | device | Merged status panel layout; top-bar icons; walker draws the current frame. |
+| `ui/battle` | device | Gen-3 style primitives: battle box (tab + shadow), shadowed text, HP bar with tag + shine, EXP bar, dialogue box, background. |
+| `ui/theme` | pure, host-tested | Battle palette constants (+ shine variants); `hpColor` thresholds already Gen-3 (≤50% yellow, ≤20% red) — now covered by a test. |
+| `ui/screen_now` | device | Battle layout; top-strip icons; walker draws the current frame. |
 | `main.cpp` | device | On track change: PMD load → fallback; heap log; drive frame time. |
 
 ## 5. Error handling
@@ -133,7 +162,9 @@ personal and non-commercial.
 - Host (Unity via `.devtools/ntest.ps1`): `test_animdata` (simple Walk, CopyOf,
   missing Walk, multiple durations), `test_walkanim` (frame-at-time wraparound, paused,
   bbox crop union, downscale to band, frame-skip under the cap), `test_icons`
-  (device-type mapping incl. unknown/empty).
+  (device-type mapping incl. unknown/empty), `test_theme` (HP colour thresholds at 51/50/21/20%).
+- Device: side-by-side visual check against a Gen-3 battle screenshot (boxes, tab,
+  shadow, HP tag, dialogue box); colours tuned on the panel.
 - Device: CD spins while playing and freezes on pause; shuffle/repeat icons follow the
   phone within ~12 s; device icon matches the active device.
 - Device: serial shows `[walk] pmd …` for most songs and `[walk] fallback` when a sheet
