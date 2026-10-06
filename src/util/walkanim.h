@@ -22,4 +22,8 @@ int keptCount(int frames, int k);
 void mergedDurationsMs(const uint16_t* ticks, int n, int k, uint16_t* outMs);
 // Frame index at elapsedMs in a looping animation with per-frame ms durations.
 int frameAt(uint32_t elapsedMs, const uint16_t* durMs, int n);
+// True if PNGdec 1.1.6 can decode a `width`-pixel-wide PNG of this colour type (0 gray, 2 RGB,
+// 3 indexed, 4 gray+alpha, 6 RGBA) and bit depth: it keeps two lines (+16 B each) in a
+// maxBuffered-byte buffer and does not check RGBA widths above ~316 px itself.
+bool pngFits(int width, int pixelType, int bpp, int maxBuffered = 2562);
 }

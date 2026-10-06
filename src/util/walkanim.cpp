@@ -57,4 +57,17 @@ int frameAt(uint32_t elapsedMs, const uint16_t* durMs, int n) {
     return n - 1;
 }
 
+bool pngFits(int width, int pixelType, int bpp, int maxBuffered) {
+    int ch = 4;
+    switch (pixelType) {
+        case 0: ch = 1; break;
+        case 2: ch = 3; break;
+        case 3: ch = 1; break;
+        case 4: ch = 2; break;
+        case 6: ch = 4; break;
+    }
+    int pitch = (width * ch * bpp + 7) / 8;
+    return 2 * (pitch + 16) <= maxBuffered;
+}
+
 }

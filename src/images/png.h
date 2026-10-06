@@ -9,8 +9,9 @@ namespace img {
 
 PNG& decoder();
 
-// Raw PNG bytes for dex `dex`: SD cache if present, else HTTPS download of `url`
-// (<= 40000 bytes) saved to the cache. *outData is malloc'ed (free() it).
-bool loadSpriteBytes(int dex, const char* url, uint8_t** outData, size_t* outLen);
+// PokeAPI sprite bytes for dex `dex` into the caller's buffer: SD cache if present, else HTTPS
+// download of `url` (saved to the cache). *fromCache tells the caller where they came from.
+bool loadSpriteInto(int dex, const char* url, uint8_t* buf, size_t cap, size_t* outLen,
+                    bool* fromCache);
 
 }

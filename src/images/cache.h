@@ -12,8 +12,8 @@ bool begin();
 // Path API.
 bool hasPath(const String& path);
 bool savePath(const String& path, const uint8_t* data, size_t n);
-// Reads the whole file (<= maxLen) into a malloc'ed buffer of n+1 bytes, NUL-terminated.
-bool readAll(const String& path, size_t maxLen, uint8_t** out, size_t* outLen);
+// Reads the whole file into the caller's buffer if it fits (n + 1 <= cap); NUL-terminates.
+bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen);
 void removePath(const String& path);
 
 // PokeAPI sprite API (dex-keyed, /sprites/<dex>.png).

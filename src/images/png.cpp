@@ -7,10 +7,12 @@ namespace img {
 static PNG g_png;
 PNG& decoder() { return g_png; }
 
-bool loadSpriteBytes(int dex, const char* url, uint8_t** outData, size_t* outLen) {
-    if (cache::readAll(cache::spritePath(dex), 40000, outData, outLen)) return true;
-    if (!fetch::httpsGet(url, 40000, outData, outLen)) return false;
-    cache::save(dex, *outData, *outLen);
+bool loadSpriteInto(int dex, const char* url, uint8_t* buf, size_t cap, size_t* outLen,
+                    bool* fromCache) {
+    *fromCache = cache::readInto(cache::spritePath(dex), buf, cap, outLen);
+    if (*fromCache) return true;
+    if (!fetch::httpsGetInto(url, buf, cap, outLen)) return false;
+    cache::save(dex, buf, *outLen);
     return true;
 }
 

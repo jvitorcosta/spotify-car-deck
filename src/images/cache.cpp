@@ -29,21 +29,17 @@ bool savePath(const String& path, const uint8_t* data, size_t n) {
     return true;
 }
 
-bool readAll(const String& path, size_t maxLen, uint8_t** out, size_t* outLen) {
-    *out = nullptr;
+bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen) {
     *outLen = 0;
     if (!ready) return false;
     fs::File f = SD.open(path, FILE_READ);
     if (!f) return false;
     size_t n = f.size();
-    if (n == 0 || n > maxLen) { f.close(); return false; }
-    uint8_t* data = (uint8_t*)malloc(n + 1);
-    if (!data) { f.close(); return false; }
-    size_t got = f.read(data, n);
+    if (n == 0 || n + 1 > cap) { f.close(); return false; }
+    size_t got = f.read(buf, n);
     f.close();
-    if (got != n) { free(data); return false; }
-    data[n] = 0;
-    *out = data;
+    if (got != n) return false;
+    buf[n] = 0;
     *outLen = n;
     return true;
 }

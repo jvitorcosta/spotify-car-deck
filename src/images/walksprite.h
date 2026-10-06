@@ -13,10 +13,11 @@ constexpr int BAND_H     = 32;      // walk band height in the status box
 constexpr int MAX_W      = 64;      // widest frame kept
 constexpr int CAP_BYTES  = 10240;   // per slot: RGB565 + 1-byte mask/px; 2 slots, heap-tight
 constexpr int MAX_FRAMES = 16;
+constexpr int SCRATCH    = 12288;   // one download buffer for XML / sheet / sprite (begin()); larger sheets fall back
 
 struct Info { bool ready; bool pmd; int w, h, frames; };
 
-// Allocates both slots once (call early in setup, before the heap fragments).
+// Allocates both slots and the download scratch once (setup(), before WiFi).
 bool begin();
 
 bool loadPmd(int dex);                            // -> staged

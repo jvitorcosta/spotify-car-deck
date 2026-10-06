@@ -66,6 +66,22 @@ void test_frame_at_degenerate() {
     TEST_ASSERT_EQUAL_INT(0, frameAt(1234, z, 2));
     TEST_ASSERT_EQUAL_INT(0, frameAt(1234, z, 0));
 }
+// PNGdec 1.1.6 keeps the current and previous line (+16 B alignment each) in a 2562-byte buffer.
+void test_png_fits_rgba_up_to_316px() {
+    TEST_ASSERT_TRUE(pngFits(128, 6, 8));    // pitch 512
+    TEST_ASSERT_TRUE(pngFits(316, 6, 8));    // pitch 1264 -> 2560
+    TEST_ASSERT_FALSE(pngFits(317, 6, 8));   // pitch 1268 -> 2568
+    TEST_ASSERT_FALSE(pngFits(320, 6, 8));
+}
+void test_png_fits_indexed_wide() {
+    TEST_ASSERT_TRUE(pngFits(512, 3, 8));    // pitch 512
+    TEST_ASSERT_TRUE(pngFits(512, 3, 4));    // pitch 256
+}
+void test_png_fits_truecolor_and_gray_alpha() {
+    TEST_ASSERT_TRUE(pngFits(400, 2, 8));    // RGB pitch 1200 -> 2432
+    TEST_ASSERT_FALSE(pngFits(500, 2, 8));
+    TEST_ASSERT_TRUE(pngFits(600, 4, 8));    // gray+alpha pitch 1200
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_box_union);
@@ -79,5 +95,8 @@ int main(int, char**) {
     RUN_TEST(test_merged_durations);
     RUN_TEST(test_frame_at_cycles);
     RUN_TEST(test_frame_at_degenerate);
+    RUN_TEST(test_png_fits_rgba_up_to_316px);
+    RUN_TEST(test_png_fits_indexed_wide);
+    RUN_TEST(test_png_fits_truecolor_and_gray_alpha);
     return UNITY_END();
 }

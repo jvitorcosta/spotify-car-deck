@@ -1,18 +1,19 @@
 #include "fetch.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include "../core/mem.h"
 
 namespace fetch {
 
-bool httpsGet(const char* url, size_t maxLen, uint8_t** out, size_t* outLen, int* httpCode) {
-    *out = nullptr;
+bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int* httpCode) {
     *outLen = 0;
     if (httpCode) *httpCode = 0;
-    if (!url || !url[0]) return false;
-    WiFiClientSecure client; client.setInsecure();
+    if (!url || !url[0] || !buf || cap < 2) return false;
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(8);   // seconds; default 120 s blocks a half-dead link
     HTTPClient https;
-    https.useHTTP10(true);   // plain (non-chunked) body so getSize() is the length
+    https.useHTTP10(true);           // plain (non-chunked) body so getSize() is the length
+    https.setTimeout(8000);
     if (!https.begin(client, url)) return false;
     int code = https.GET();
     if (httpCode) *httpCode = code;
@@ -22,16 +23,8 @@ bool httpsGet(const char* url, size_t maxLen, uint8_t** out, size_t* outLen, int
         return false;
     }
     int len = https.getSize();
-    if (len <= 0 || (size_t)len > maxLen) {
-        Serial.printf("[fetch] bad length %d (max %u)\n", len, (unsigned)maxLen);
-        https.end();
-        return false;
-    }
-
-    uint8_t* data = (uint8_t*)malloc((size_t)len + 1);
-    if (!data) {
-        Serial.printf("[fetch] no heap for %d bytes (largest block %u)\n", len,
-                      (unsigned)mem::byteLargest());
+    if (len <= 0 || (size_t)len + 1 > cap) {
+        Serial.printf("[fetch] bad length %d (cap %u)\n", len, (unsigned)cap);
         https.end();
         return false;
     }
@@ -43,7 +36,7 @@ bool httpsGet(const char* url, size_t maxLen, uint8_t** out, size_t* outLen, int
         if (a) {
             size_t want = (size_t)(len - got);
             if (a < want) want = a;
-            got += s->readBytes(data + got, want);
+            got += s->readBytes(buf + got, want);
             last = millis();
         } else {
             if (millis() - last > 8000) break;   // stalled
@@ -51,9 +44,8 @@ bool httpsGet(const char* url, size_t maxLen, uint8_t** out, size_t* outLen, int
         }
     }
     https.end();
-    if (got != len) { free(data); return false; }
-    data[len] = 0;
-    *out = data;
+    if (got != len) return false;
+    buf[len] = 0;
     *outLen = (size_t)len;
     return true;
 }
