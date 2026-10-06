@@ -5439,3 +5439,454 @@ CD (and the walker stands still); resume → "NOW PLAYING", CD spins.
 git add src/ui/labels.h test/test_labels/test_labels.cpp src/ui/screen_now.cpp src/main.cpp
 git commit -m "feat(ui): show PAUSED in the top strip while playback is paused"
 ```
+
+---
+
+### Task 23: Portuguese / Latin-1 accents drawn over the ASCII font
+
+Execution order for Part 3: 14 → 15 → 16 → 17 → 18 → 19 → 21 → 22 → **23** → 20.
+Spec: `2026-10-06-merged-status-panel-pmd-walker-design.md` §2.0 "Accented letters".
+Font facts (TFT_eSPI `Fonts/Font16.c`, our font 2): 16-row cell; capitals occupy rows 3–12
+(`A`), lowercase rows 6–12 (`a`), baseline row 12, rows 13–15 empty.
+
+**Files:**
+- Modify: `src/util/text.h`, `src/util/text.cpp`, `test/test_text/test_text.cpp`
+- Create: `src/ui/accents.h`, `src/ui/accents.cpp`, `test/test_accents/test_accents.cpp`
+- Modify: `src/util/textfit.h`, `src/util/textfit.cpp`, `test/test_textfit/test_textfit.cpp`
+- Create: `src/ui/textdraw.h`, `src/ui/textdraw.cpp`
+- Modify: `src/ui/screen_now.cpp`
+
+**Interfaces:**
+- Produces: `enum class txt::Mark : uint8_t { None, Acute, Grave, Circumflex, Tilde, Diaeresis, Cedilla, Ring };`
+  `size_t txt::foldMarks(const char* src, char* dst, txt::Mark* marks, size_t n)` (asciiFold + one mark per output char; `marks` may be nullptr);
+  `accents::W = 5`, `accents::H = 2`, `const char* accents::row(txt::Mark, int y)`, `int accents::topRow(txt::Mark, char base)`;
+  `textfit::TwoLines` gains `size_t bStart` (index of line b's first char in the source) and `size_t bKeep` (how many chars of b come from the source; the rest is "...");
+  `int ui::drawText(TFT_eSPI&, const char* utf8, int x, int y, uint8_t font, uint16_t fg, uint16_t shadow, uint8_t datum, int maxW, bool upper = false)` (returns drawn width);
+  `int ui::drawFolded(TFT_eSPI&, const char* text, const txt::Mark* marks, size_t nMarks, int x, int y, uint8_t font, uint16_t fg, uint16_t shadow, uint8_t datum)`.
+
+- [ ] **Step 1: Failing tests for `foldMarks`** — add to `test/test_text/test_text.cpp` (register with `RUN_TEST`; index map for "Coracao": C0 o1 r2 a3 c4 a5 o6):
+
+```cpp
+void test_fold_marks_portuguese() {
+    char o[32];
+    txt::Mark m[32];
+    size_t n = txt::foldMarks("Cora\xC3\xA7\xC3\xA3o", o, m, sizeof(o));   // "Coração"
+    TEST_ASSERT_EQUAL_STRING("Coracao", o);
+    TEST_ASSERT_EQUAL_INT(7, (int)n);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::None, (int)m[3]);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Cedilla, (int)m[4]);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Tilde, (int)m[5]);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::None, (int)m[6]);
+}
+void test_fold_marks_upper_and_others() {
+    char o[32];
+    txt::Mark m[32];
+    txt::foldMarks("\xC3\x89""POCA voc\xC3\xAA \xC3\xA0 n\xC3\xA3o", o, m, sizeof(o));   // "ÉPOCA você à não"
+    TEST_ASSERT_EQUAL_STRING("EPOCA voce a nao", o);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Acute, (int)m[0]);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Circumflex, (int)m[9]);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Grave, (int)m[11]);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Tilde, (int)m[14]);
+}
+void test_fold_marks_two_letter_folds_have_no_mark() {
+    char o[8];
+    txt::Mark m[8];
+    txt::foldMarks("\xC3\x86\xC3\x9F", o, m, sizeof(o));   // "Æß"
+    TEST_ASSERT_EQUAL_STRING("AEss", o);
+    for (int i = 0; i < 4; ++i) TEST_ASSERT_EQUAL_INT((int)txt::Mark::None, (int)m[i]);
+}
+void test_fold_marks_null_marks_matches_ascii_fold() {
+    char a[32], b[32];
+    txt::asciiFold("N\xC3\xA3o \xC3\xA9", a, sizeof(a));
+    txt::foldMarks("N\xC3\xA3o \xC3\xA9", b, nullptr, sizeof(b));
+    TEST_ASSERT_EQUAL_STRING(a, b);
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_text\test_text.cpp src\util\text.cpp`
+Expected: `COMPILE FAILED` (`Mark` / `foldMarks` not declared).
+
+- [ ] **Step 3: Implement in `src/util/text.h` / `text.cpp`**
+
+`text.h`, inside `namespace txt` (add `#include <cstdint>`):
+
+```cpp
+// Accent carried by a folded character, so the UI can draw it over the ASCII glyph.
+enum class Mark : uint8_t { None, Acute, Grave, Circumflex, Tilde, Diaeresis, Cedilla, Ring };
+// asciiFold that also records each output character's accent. `marks` (room for n entries)
+// may be nullptr. Letters that fold to two characters (Æ, ß) carry no mark. Returns the
+// folded length.
+size_t foldMarks(const char* src, char* dst, Mark* marks, size_t n);
+```
+
+`text.cpp`: add after `foldLatin1`:
+
+```cpp
+// Accent of a Latin-1 letter (U+00C0..U+00FF).
+static Mark markLatin1(unsigned int cp) {
+    switch (cp) {
+        case 0xC0: case 0xC8: case 0xCC: case 0xD2: case 0xD9:
+        case 0xE0: case 0xE8: case 0xEC: case 0xF2: case 0xF9: return Mark::Grave;
+        case 0xC1: case 0xC9: case 0xCD: case 0xD3: case 0xDA: case 0xDD:
+        case 0xE1: case 0xE9: case 0xED: case 0xF3: case 0xFA: case 0xFD: return Mark::Acute;
+        case 0xC2: case 0xCA: case 0xCE: case 0xD4: case 0xDB:
+        case 0xE2: case 0xEA: case 0xEE: case 0xF4: case 0xFB: return Mark::Circumflex;
+        case 0xC3: case 0xD1: case 0xD5: case 0xE3: case 0xF1: case 0xF5: return Mark::Tilde;
+        case 0xC4: case 0xCB: case 0xCF: case 0xD6: case 0xDC:
+        case 0xE4: case 0xEB: case 0xEF: case 0xF6: case 0xFC: case 0xFF: return Mark::Diaeresis;
+        case 0xC5: case 0xE5: return Mark::Ring;
+        case 0xC7: case 0xE7: return Mark::Cedilla;
+        default: return Mark::None;
+    }
+}
+```
+
+and replace the `asciiFold` function with:
+
+```cpp
+size_t foldMarks(const char* src, char* dst, Mark* marks, size_t n) {
+    size_t o = 0;
+    if (n == 0) return 0;
+    if (!src) { dst[0] = '\0'; return 0; }
+    for (size_t i = 0; src[i] && o + 1 < n; ) {
+        unsigned char c = (unsigned char)src[i];
+        if (c < 0x80) {                         // plain ASCII
+            if (marks) marks[o] = Mark::None;
+            dst[o++] = (char)c; ++i;
+        } else if (c == 0xC3 && src[i + 1]) {   // U+00C0..00FF accented letters
+            unsigned int cp = 0xC0 + ((unsigned char)src[i + 1] - 0x80);
+            const char* r = foldLatin1(cp);
+            Mark m = (r[0] && !r[1]) ? markLatin1(cp) : Mark::None;   // only 1:1 folds keep it
+            for (; *r && o + 1 < n; ++r) {
+                if (marks) marks[o] = m;
+                dst[o++] = *r;
+            }
+            i += 2;
+        } else if (c == 0xC2 && src[i + 1]) {   // U+0080..00BF symbols -> drop
+            i += 2;
+        } else if ((c & 0xE0) == 0xC0) { i += 2; }   // skip other 2-byte
+        else if ((c & 0xF0) == 0xE0) { i += 3; }     // skip 3-byte
+        else if ((c & 0xF8) == 0xF0) { i += 4; }     // skip 4-byte
+        else { ++i; }
+    }
+    dst[o] = '\0';
+    return o;
+}
+
+void asciiFold(const char* src, char* dst, size_t n) { foldMarks(src, dst, nullptr, n); }
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run the Step 2 command. Expected: `8 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Failing tests for the mark art `test/test_accents/test_accents.cpp`**
+
+```cpp
+#include <unity.h>
+#include <cstring>
+#include "../../src/ui/accents.h"
+
+using txt::Mark;
+void setUp() {}
+void tearDown() {}
+
+void test_every_mark_is_5x2() {
+    const Mark all[] = {Mark::Acute, Mark::Grave, Mark::Circumflex, Mark::Tilde,
+                        Mark::Diaeresis, Mark::Cedilla, Mark::Ring};
+    for (Mark m : all)
+        for (int y = 0; y < accents::H; ++y) {
+            TEST_ASSERT_NOT_NULL(accents::row(m, y));
+            TEST_ASSERT_EQUAL_INT(accents::W, (int)strlen(accents::row(m, y)));
+        }
+}
+void test_none_and_out_of_range() {
+    TEST_ASSERT_NULL(accents::row(Mark::None, 0));
+    TEST_ASSERT_NULL(accents::row(Mark::Acute, 2));
+    TEST_ASSERT_NULL(accents::row(Mark::Acute, -1));
+}
+void test_top_row_by_case_and_cedilla() {
+    TEST_ASSERT_EQUAL_INT(0, accents::topRow(Mark::Acute, 'E'));    // capitals start at row 3
+    TEST_ASSERT_EQUAL_INT(3, accents::topRow(Mark::Tilde, 'a'));    // lowercase start at row 6
+    TEST_ASSERT_EQUAL_INT(13, accents::topRow(Mark::Cedilla, 'c')); // under the baseline (row 12)
+    TEST_ASSERT_EQUAL_INT(13, accents::topRow(Mark::Cedilla, 'C'));
+}
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_every_mark_is_5x2);
+    RUN_TEST(test_none_and_out_of_range);
+    RUN_TEST(test_top_row_by_case_and_cedilla);
+    return UNITY_END();
+}
+```
+
+- [ ] **Step 6: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_accents\test_accents.cpp`
+Expected: `COMPILE FAILED` (`accents.h` missing).
+
+- [ ] **Step 7: Create `src/ui/accents.h` / `accents.cpp`**
+
+```cpp
+// accents.h
+#pragma once
+#include "../util/text.h"
+// Pixel art for accent marks drawn over the ASCII glyphs of the 16-px font 2. PURE, tested.
+namespace accents {
+constexpr int W = 5, H = 2;
+// Row y of the mark as '#'/'.' (W chars); nullptr for Mark::None or y out of range.
+const char* row(txt::Mark m, int y);
+// First cell row of the mark: 0 over capitals (glyphs start at row 3), 3 over lowercase
+// (row 6), 13 for the cedilla (under the row-12 baseline).
+int topRow(txt::Mark m, char base);
+}
+```
+
+```cpp
+// accents.cpp
+#include "accents.h"
+#include <cctype>
+
+namespace accents {
+
+const char* row(txt::Mark m, int y) {
+    if (y < 0 || y >= H) return nullptr;
+    static const char* const ART[][H] = {
+        {"...#.", "..#.."},   // Acute
+        {".#...", "..#.."},   // Grave
+        {"..#..", ".#.#."},   // Circumflex
+        {".##.#", "#..#."},   // Tilde
+        {".#.#.", "....."},   // Diaeresis
+        {"..#..", ".##.."},   // Cedilla (below)
+        {".###.", ".#.#."},   // Ring
+    };
+    switch (m) {
+        case txt::Mark::Acute:      return ART[0][y];
+        case txt::Mark::Grave:      return ART[1][y];
+        case txt::Mark::Circumflex: return ART[2][y];
+        case txt::Mark::Tilde:      return ART[3][y];
+        case txt::Mark::Diaeresis:  return ART[4][y];
+        case txt::Mark::Cedilla:    return ART[5][y];
+        case txt::Mark::Ring:       return ART[6][y];
+        case txt::Mark::None:       return nullptr;
+    }
+    return nullptr;
+}
+
+int topRow(txt::Mark m, char base) {
+    if (m == txt::Mark::Cedilla) return 13;
+    return isupper((unsigned char)base) ? 0 : 3;
+}
+
+}
+```
+
+- [ ] **Step 8: Run to verify it passes**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_accents\test_accents.cpp src\ui\accents.cpp`
+Expected: `3 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 9: `textfit` reports where line b starts and how much of it is real text**
+
+Add to `test/test_textfit/test_textfit.cpp` (register with `RUN_TEST`):
+
+```cpp
+void test_offsets_for_marks() {
+    textfit::TwoLines t = textfit::wrapTwo("and I said hey what is going on", 120, w6, nullptr);
+    TEST_ASSERT_EQUAL_INT(20, (int)t.bStart);              // "is going on" starts at index 20
+    TEST_ASSERT_EQUAL_INT((int)t.b.size(), (int)t.bKeep);  // no ellipsis
+    textfit::TwoLines e = textfit::wrapTwo(
+        "one two three four five six seven eight nine ten eleven", 60, w6, nullptr);
+    TEST_ASSERT_EQUAL_INT(8, (int)e.bStart);               // after "one two "
+    TEST_ASSERT_EQUAL_INT((int)e.b.size() - 3, (int)e.bKeep);
+    textfit::TwoLines s = textfit::wrapTwo("short", 60, w6, nullptr);
+    TEST_ASSERT_EQUAL_INT(0, (int)s.bKeep);
+}
+```
+
+Run `ntest.ps1 test\test_textfit\test_textfit.cpp src\util\textfit.cpp` → `COMPILE FAILED` (no `bStart`).
+Then in `textfit.h` change the struct to
+`struct TwoLines { std::string a, b; size_t bStart = 0, bKeep = 0; };`
+and in `textfit.cpp` replace `ellipsize` and the final `return` of `wrapTwo`:
+
+```cpp
+// Fits s into maxW, appending "..." when cut; *keep = number of chars kept from s.
+static std::string ellipsize(std::string s, int maxW, WidthFn width, void* ctx, size_t* keep) {
+    if (width(s, ctx) <= maxW) { *keep = s.size(); return s; }
+    while (!s.empty() && width(s + "...", ctx) > maxW) s.pop_back();
+    *keep = s.size();
+    return s + "...";
+}
+```
+
+```cpp
+    TwoLines out;
+    out.a = s.substr(0, cut);
+    out.bStart = next;
+    out.b = ellipsize(s.substr(next), maxW, width, ctx, &out.bKeep);
+    return out;
+```
+
+(the single-line early return stays `return {s, ""};`, which leaves `bStart`/`bKeep` at 0).
+Run again → `6 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 10: Create `src/ui/textdraw.h` / `textdraw.cpp`**
+
+```cpp
+// textdraw.h
+#pragma once
+#include <TFT_eSPI.h>
+#include <stddef.h>
+#include "../util/text.h"
+// Text with Portuguese / Latin-1 accents. The fonts are ASCII-only, so each character is
+// drawn as its ASCII base and the accent is added as pixel art (ui/accents) — same width,
+// so fitting and wrapping are unchanged. Marks are drawn for font 2 only.
+namespace ui {
+// UTF-8 text, optionally upper-cased, truncated with "..." to maxW; 1 px shadow like
+// shadowText. Datums: TL, TC, TR, ML, MC. Returns the drawn width.
+int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint8_t font, uint16_t fg,
+             uint16_t shadow, uint8_t datum, int maxW, bool upper = false);
+// Already-folded text plus one mark per character (marks beyond nMarks count as None).
+int drawFolded(TFT_eSPI& t, const char* text, const txt::Mark* marks, size_t nMarks, int x,
+               int y, uint8_t font, uint16_t fg, uint16_t shadow, uint8_t datum);
+}
+```
+
+```cpp
+// textdraw.cpp
+#include "textdraw.h"
+#include <ctype.h>
+#include <string.h>
+#include "accents.h"
+#include "battle.h"
+
+namespace ui {
+
+static void drawMark(TFT_eSPI& t, txt::Mark m, char base, int cx, int top, uint16_t col) {
+    int r0 = top + accents::topRow(m, base);
+    for (int y = 0; y < accents::H; ++y) {
+        const char* r = accents::row(m, y);
+        if (!r) return;
+        for (int x = 0; x < accents::W; ++x)
+            if (r[x] == '#') t.drawPixel(cx - accents::W / 2 + x, r0 + y, col);
+    }
+}
+
+int drawFolded(TFT_eSPI& t, const char* text, const txt::Mark* marks, size_t nMarks, int x,
+               int y, uint8_t font, uint16_t fg, uint16_t shadow, uint8_t datum) {
+    int w = t.textWidth(text, font), h = t.fontHeight(font);
+    int left = x, top = y;
+    switch (datum) {
+        case TC_DATUM: left = x - w / 2; break;
+        case TR_DATUM: left = x - w; break;
+        case ML_DATUM: top = y - h / 2; break;
+        case MC_DATUM: left = x - w / 2; top = y - h / 2; break;
+        default: break;   // TL_DATUM
+    }
+    shadowText(t, text, left, top, font, fg, shadow, TL_DATUM);
+    if (font != 2 || !marks) return w;
+    char one[2] = {0, 0};
+    int px = left;
+    for (size_t i = 0; text[i]; ++i) {
+        one[0] = text[i];
+        int cw = t.textWidth(one, font);
+        txt::Mark m = i < nMarks ? marks[i] : txt::Mark::None;
+        if (m != txt::Mark::None) {
+            int cx = px + (cw - 1) / 2;
+            drawMark(t, m, text[i], cx + 1, top + 1, shadow);   // shadow first, like the glyph
+            drawMark(t, m, text[i], cx, top, fg);
+        }
+        px += cw;
+    }
+    return w;
+}
+
+int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint8_t font, uint16_t fg,
+             uint16_t shadow, uint8_t datum, int maxW, bool upper) {
+    char buf[128];
+    txt::Mark marks[128];
+    size_t n = txt::foldMarks(utf8 ? utf8 : "", buf, marks, sizeof(buf));
+    if (upper)
+        for (size_t i = 0; i < n; ++i) buf[i] = (char)toupper((unsigned char)buf[i]);
+    if (t.textWidth(buf, font) > maxW) {   // truncate with "..." (marks follow the kept chars)
+        while (n > 1) {
+            buf[--n] = '\0';
+            char tmp[132];
+            snprintf(tmp, sizeof(tmp), "%s...", buf);
+            if (t.textWidth(tmp, font) <= maxW) break;
+        }
+        strncat(buf, "...", sizeof(buf) - strlen(buf) - 1);
+    }
+    return drawFolded(t, buf, marks, n, x, y, font, fg, shadow, datum);
+}
+
+}
+```
+
+- [ ] **Step 11: Use it in `src/ui/screen_now.cpp`**
+
+Add `#include "textdraw.h"`. Then:
+- `drawTopStrip`: replace the two lines `String name = fitText(...)` / `int nameW = ...` and the following `shadowText(t, name.c_str(), 314, 2, ...)` with
+  `int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TR_DATUM, 110);`
+- `drawNow` info box: replace the three `shadowText(t, fitText(...).c_str(), ...)` calls with
+
+```cpp
+    drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 8, 2,
+             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
+    drawText(t, st.artist[0] ? st.artist : "Artist", INFO_X + 8, INFO_Y + 32, 2,
+             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
+    char from[96];
+    snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
+    drawText(t, from, INFO_X + 8, INFO_Y + 58, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
+```
+
+- status box name: replace `String nm = fitText(...)` + its `shadowText` with
+  `int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 24, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, 130, true);`
+  and use `24 + nmW + 6` for the `No.` x position.
+- `drawLyricArea`: fold with marks and draw each wrapped line with its marks:
+
+```cpp
+void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
+    char folded[160];
+    txt::Mark marks[160];
+    size_t n = txt::foldMarks(currentLine ? currentLine : "", folded, marks, sizeof(folded));
+    if (g_lastLyric == folded) return;
+    g_lastLyric = folded;
+
+    const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
+    t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
+    if (!n) return;
+    drawIcon(t, icons::Icon::Note, ix + 2, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    drawIcon(t, icons::Icon::Note, ix + iw - 14, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    const int textW = iw - 2 * 18;
+    textfit::TwoLines l = textfit::wrapTwo(folded, textW, tftWidth2, &t);
+    int cx = DLG_X + DLG_W / 2;
+    if (l.b.empty()) {
+        drawFolded(t, l.a.c_str(), marks, n, cx, DLG_Y + 20, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+    } else {
+        drawFolded(t, l.a.c_str(), marks, l.a.size(), cx, DLG_Y + 12, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawFolded(t, l.b.c_str(), marks + l.bStart, l.bKeep, cx, DLG_Y + 29, 2, theme::TEXT,
+                   theme::DLG_SHADOW, MC_DATUM);
+    }
+}
+```
+
+- delete the now-unused `fitText` helper.
+
+- [ ] **Step 12: Host suites, build, flash, observe**
+
+All suites (+ `test_accents`; `test_text` and `test_textfit` updated) → `OK`; build + flash.
+Play a Portuguese song with accents in the title and lyrics (e.g. something with "Coração",
+"não", "você"). Expected: accents and cedilla visible and centred on their letters in the info box
+(upper-case title), artist, context and the dialogue-box lyric; no overlap with the line above;
+shadow consistent. Adjust `accents::topRow` / the art if a mark looks off on the panel (tests
+must stay green).
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add src/util/text.h src/util/text.cpp test/test_text/test_text.cpp src/ui/accents.h src/ui/accents.cpp test/test_accents/test_accents.cpp src/util/textfit.h src/util/textfit.cpp test/test_textfit/test_textfit.cpp src/ui/textdraw.h src/ui/textdraw.cpp src/ui/screen_now.cpp
+git commit -m "feat(ui): draw Portuguese/Latin-1 accents over the ASCII font"
+```

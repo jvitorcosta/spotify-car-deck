@@ -59,6 +59,13 @@ the real panel, which renders colours differently from a PC screen):
 - **Top strip:** dark `#283038`, cream text with shadow. The title reads **"NOW PLAYING"**
   while playing and **"PAUSED"** while paused (the CD freezes too); the strip redraws when the
   play state changes. *(Added 2026-10-06.)*
+- **Accented letters (Portuguese / Latin-1)** in every dynamic text — track, artist, context,
+  device name, lyrics: the built-in fonts are ASCII-only, so each character is decomposed into
+  its ASCII base + an accent mark (´ ` ^ ~ ¨ ¸ ˚); the base glyph is drawn as before and the mark
+  is drawn as 5×2 pixel art above it (rows 0–1 over capitals, rows 3–4 over lowercase in the
+  16-px font; the cedilla at rows 13–14 below the baseline), with the same 1-px shadow. Widths
+  are unchanged, so fitting, wrapping and "..." truncation work as before. Font 2 only (the
+  font used for all dynamic text). *(Added 2026-10-06.)*
 - **Status screens** ("No signal...", "Nothing playing"): battle background, **Pikachu** standing
   on a grass battle platform (2× nearest-neighbour), and the message in a dialogue box below.
   The sprite is **bundled in flash** (`tools/gen_status_sprite.py` → `src/ui/status_sprite.inc`:
