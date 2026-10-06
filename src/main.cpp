@@ -22,6 +22,7 @@ AppState g_state{};
 
 static lyricsvc::Result g_lyrics{lyricsvc::Kind::None, ""};
 static std::vector<lrc::LrcLine> g_lrcLines;   // parsed when synced lyrics exist
+static char g_topSig[96] = "";  // last drawn top-strip state
 
 // Current synced lyric line for a playback position ("" if none).
 static const char* currentLyric(uint32_t posMs) {
@@ -105,29 +106,47 @@ void loop() {
         Serial.printf("[lyrics] kind=%d lines=%u\n",
                       (int)g_lyrics.kind, (unsigned)g_lrcLines.size());
 
-        uint16_t accent = theme::typeColor(g_state.pokeType);
-        ui::drawNow(tft, view, accent);
-        img::drawAlbumArt(tft, 11, 29, 98, 98);
         if (!walk::loadPmd(g_state.pokedexNum))
             walk::loadFallback(g_state.pokeSpriteUrl, g_state.pokedexNum);
         Serial.printf("[heap] free=%u max=%u\n", (unsigned)ESP.getFreeHeap(),
                       (unsigned)ESP.getMaxAllocHeap());
+
+        uint16_t accent = theme::typeColor(g_state.pokeType);
+        ui::drawNow(tft, view, accent);
+        g_topSig[0] = '\0';   // steady-state loop re-checks the top strip
+        img::drawAlbumArt(tft, ui::ART_X, ui::ART_Y, ui::ART_W, ui::ART_H);
         ui::drawLyricArea(tft, currentLyric(view.progressMs));
 
         strcpy(lastTrack, g_state.trackName);
     } else {
-        static uint32_t lastDraw = 0;
-        if (millis() - lastDraw >= 250) {   // ~4 fps redraw is plenty
-            lastDraw = millis();
-            ui::drawProgressRegion(tft, view);   // shared with drawNow() — single source
+        static uint32_t lastDraw = 0, lastWalk = 0, lastCd = 0, lastTick = 0, animMs = 0;
+        static int walkStep = 0, cdFrame = 0;
+        uint32_t now = millis();
+        uint32_t dt = now - lastTick;
+        lastTick = now;
+        if (g_state.isPlaying) animMs += dt;   // walk cycle runs only while playing
+
+        // top strip: redraw only when device / shuffle / repeat change
+        char sig[96];
+        snprintf(sig, sizeof(sig), "%s|%s|%d|%d", g_state.deviceName, g_state.deviceType,
+                 (int)g_state.shuffle, g_state.repeat);
+        if (strcmp(sig, g_topSig) != 0) {
+            strcpy(g_topSig, sig);
+            ui::drawTopStrip(tft, g_state);
+        }
+        if (g_state.isPlaying && now - lastCd >= 160) {   // spinning CD ~6 fps
+            lastCd = now;
+            ui::drawCdFrame(tft, cdFrame = (cdFrame + 1) & 3);
+        }
+        if (now - lastDraw >= 250) {
+            lastDraw = now;
+            ui::drawProgressRegion(tft, view);
             ui::drawLyricArea(tft, currentLyric(view.progressMs));
         }
-        static uint32_t lastWalk = 0;
-        static int walkStep = 0;
-        if (millis() - lastWalk >= 120) {   // ~8 fps walk, repaints only the walker rect
-            lastWalk = millis();
-            if (g_state.isPlaying) walkStep++;   // stands still while paused
-            ui::drawWalker(tft, view, walkStep);
+        if (now - lastWalk >= 120) {                       // ~8 fps walker
+            lastWalk = now;
+            if (g_state.isPlaying) walkStep++;
+            ui::drawWalker(tft, view, animMs, walkStep);
         }
     }
     delay(10);

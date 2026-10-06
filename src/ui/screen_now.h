@@ -3,20 +3,29 @@
 #include "app_state.h"
 #include "widgets.h"
 namespace ui {
-// Control button layout (shared with input hit-testing in Task 13).
+// Control button layout, kept for when touch controls return (Task 13).
 struct NowButtons { Button prev, play, next, vol, lyrics; };
 NowButtons nowButtons();
+
+// Album art target rect inside the art battle box (main pushes the cover here).
+constexpr int ART_X = 11, ART_Y = 27, ART_W = 92, ART_H = 92;
+
+// Full Gen-3 battle deck: background, top strip, art box, info box, status box,
+// dialogue box. Called on track change / return from a status screen.
 void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent);
-// Repaints the HP text + bar (not the panel, so the walker and lyric survive).
-// Called by drawNow and by the live redraw between polls so they never drift.
+// Top strip only (title, CD, shuffle/repeat, device icon + name).
+void drawTopStrip(TFT_eSPI& t, const AppState& st);
+// Spinning CD after "NOW PLAYING" (frame 0..3).
+void drawCdFrame(TFT_eSPI& t, int frame);
+// HP time text + HP bar + EXP (volume) bar, repainted in place.
 void drawProgressRegion(TFT_eSPI& t, const AppState& st);
-// Walking Pokemon riding the HP bar at the song's progress. `step` advances
-// each animation frame (bob + periodic mirror = fake walk). No-op until the
-// walk sprite is loaded.
-void drawWalker(TFT_eSPI& t, const AppState& st, int step);
-// Draws the current synced lyric line in the area under the HP bar (empty if
-// there is no synced line). Called each redraw with the line for the moment.
+// Walker on the HP bar. animMs = play-time animation clock (PMD frame timing);
+// step = frame counter (fallback bob/mirror).
+void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step);
+// Current lyric line in the dialogue box (redraws only when the text changes).
 void drawLyricArea(TFT_eSPI& t, const char* currentLine);
-// Full-screen in-theme status message (e.g. "No signal...", "Nothing playing").
+// Forget the last drawn lyric so the next drawLyricArea() repaints (after drawNow).
+void resetLyricArea();
+// Full-screen status message in a dialogue box ("No signal...", "Nothing playing").
 void drawOffline(TFT_eSPI& t, const char* msg);
 }

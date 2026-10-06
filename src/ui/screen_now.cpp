@@ -1,14 +1,26 @@
 #include "screen_now.h"
-#include "widgets.h"
+#include <string>
+#include "battle.h"
+#include "icons.h"
 #include "theme.h"
 #include "../util/text.h"
+#include "../util/textfit.h"
 #include "../util/interp.h"
 #include "../util/walkrect.h"
+#include "../util/walkanim.h"
 #include "../images/walksprite.h"
 
 namespace ui {
 
-// Button layout kept for when touch controls are wired back on; not drawn now.
+// ---- layout (see spec §2) ----
+static const int INFO_X = 114, INFO_Y = 30, INFO_W = 198, INFO_H = 86;
+static const int STAT_X = 8, STAT_Y = 126, STAT_W = 304, STAT_H = 68;
+static const int BAR_X = 24, BAR_Y = 176, BAR_W = 280, BAR_H = 10;   // incl. "HP" tag
+static const int FILL_X = BAR_X + HP_TAG_W + 1, FILL_W = BAR_W - HP_TAG_W - 2;
+static const int EXP_Y = 188;
+static const int DLG_X = 4, DLG_Y = 198, DLG_W = 312, DLG_H = 41;
+static const int CD_CY = 10;
+
 NowButtons nowButtons() {
     NowButtons b;
     int y = 210, h = 26;
@@ -20,11 +32,14 @@ NowButtons nowButtons() {
     return b;
 }
 
+static int g_cdX = 100;   // set by drawTopStrip from the title width
+
 // Fold UTF-8 accents to ASCII (fonts are ASCII-only), then truncate with an
 // ellipsis so the text fits within maxW pixels.
-static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font) {
+static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font, bool upper = false) {
     char folded[128];
     txt::asciiFold(s, folded, sizeof(folded));
+    if (upper) for (char* p = folded; *p; ++p) *p = (char)toupper((unsigned char)*p);
     String str = folded;
     if (t.textWidth(str, font) <= maxW) return str;
     while (str.length() > 1) {
@@ -34,53 +49,71 @@ static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font) {
     return str + "...";
 }
 
-// HP bar DEPLETES from the left (remaining fill anchored right), green/yellow/red,
-// labelled 'HP current/max' (remaining time / total) like a Pokemon life bar.
-// The walking Pokemon rides on top of the bar (band between the label and bar).
-static const int HP_X = 126, HP_Y = 176, HP_W = 178, HP_H = 16;
+void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, g_cdX, CD_CY, frame, theme::TOP_DARK); }
+
+void drawTopStrip(TFT_eSPI& t, const AppState& st) {
+    topStrip(t);
+    shadowText(t, "NOW PLAYING", 6, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TL_DATUM);
+    g_cdX = 6 + t.textWidth("NOW PLAYING", 2) + 10;
+    drawCdFrame(t, 0);
+
+    String name = fitText(t, st.deviceName[0] ? st.deviceName : "device", 110, 2);
+    int nameW = t.textWidth(name, 2);
+    shadowText(t, name.c_str(), 314, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TR_DATUM);
+    int devX = 314 - nameW - 4 - icons::SIZE;
+    drawIcon(t, icons::forDevice(st.deviceType), devX, 4, theme::BOX_FILL, theme::TOP_DARK);
+    int repX = devX - 18, shufX = repX - 16;
+    drawIcon(t, icons::Icon::Repeat, repX, 4,
+             st.repeat ? theme::BOX_FILL : theme::ICON_OFF, theme::TOP_DARK);
+    if (st.repeat == 2) {   // repeat-one: tiny "1"
+        t.setTextColor(theme::HP_TAG_TEXT);
+        t.drawString("1", repX + icons::SIZE, 9, 1);
+    }
+    drawIcon(t, icons::Icon::Shuffle, shufX, 4,
+             st.shuffle ? theme::BOX_FILL : theme::ICON_OFF, theme::TOP_DARK);
+}
 
 void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
     uint32_t rem = (st.durationMs > st.progressMs) ? (st.durationMs - st.progressMs) : 0;
     uint32_t tot = st.durationMs;
     float hpFrac = st.durationMs ? (float)rem / (float)st.durationMs : 1.0f;
-    char tbuf[28];
-    snprintf(tbuf, sizeof(tbuf), "HP  %u:%02u/%u:%02u",
+    char tbuf[24];
+    snprintf(tbuf, sizeof(tbuf), "HP %u:%02u/%u:%02u",
              rem / 60000, (rem / 1000) % 60, tot / 60000, (tot / 1000) % 60);
-    t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
-    t.setTextDatum(TL_DATUM);
-    t.setTextPadding(178);          // overwrite the old label in place (no flicker)
-    t.drawString(tbuf, HP_X, 124, 2);
-    t.setTextPadding(0);
-    hpBar(t, HP_X, HP_Y, HP_W, HP_H, hpFrac);
+    t.fillRect(206, 129, 100, 16, theme::BOX_FILL);   // clear the old time
+    shadowText(t, tbuf, 304, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TR_DATUM);
+    hpBarBattle(t, BAR_X, BAR_Y, BAR_W, BAR_H, hpFrac);
+    expBar(t, FILL_X, EXP_Y, FILL_W, st.volume / 100.0f);
 }
 
-// The walker is composed onto the cream panel in RAM and pushed as one rect.
-// The rect also covers where it stood last frame, so moving erases its trail.
-void drawWalker(TFT_eSPI& t, const AppState& st, int step) {
+void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
     static const int SLACK = 8;
     static walkrect::Rect prev{0, 0, 0, 0};
     static uint16_t buf[(walk::MAX_W + 2 * SLACK) * (walk::BAND_H + 1 + 2 * SLACK)];
     const walk::Info& wi = walk::info();
     if (!wi.ready) return;
-    int fr = wi.pmd ? (step % wi.frames) : 0;   // Task 7 replaces this with real timing
+
+    int fr = 0;
+    if (wi.pmd) {
+        uint16_t d[walk::MAX_FRAMES];
+        for (int i = 0; i < wi.frames; ++i) d[i] = walk::durationMs(i);
+        fr = walkanim::frameAt(animMs, d, wi.frames);
+    }
     const uint16_t* spr = walk::pixels(fr);
     const uint8_t* msk = walk::mask(fr);
     int w = wi.w, h = wi.h;
 
     float frac = st.durationMs ? (float)st.progressMs / (float)st.durationMs : 0.0f;
-    // Stand on the drained/remaining boundary, inside the bar's inner fill area.
-    int cx = interp::walkX(frac, HP_X + 2, HP_W - 4, w);
-    int bob = (!wi.pmd && (step % 2)) ? 1 : 0;    // fallback fake-walk only
+    int cx = interp::walkX(frac, FILL_X, FILL_W, w);   // drained/remaining boundary
+    int bob = (!wi.pmd && (step % 2)) ? 1 : 0;           // fallback fake-walk only
     bool mirror = !wi.pmd && ((step / 4) % 2);
-    int x0 = cx - w / 2, y0 = HP_Y - h - bob;     // feet rest on the bar top
+    int x0 = cx - w / 2, y0 = BAR_Y - h - bob;          // feet rest on the bar top
 
-    // Sprite rect includes the 1px bob headroom; union with last frame's rect
-    // so moving erases the trail (a far jump clears the old rect instead).
-    walkrect::Plan p = walkrect::plan(prev, {x0, HP_Y - h - 1, w, h + 1}, SLACK);
-    if (p.clearPrev) t.fillRect(prev.x, prev.y, prev.w, prev.h, theme::GBA_CREAM);
+    walkrect::Plan p = walkrect::plan(prev, {x0, BAR_Y - h - 1, w, h + 1}, SLACK);
+    if (p.clearPrev) t.fillRect(prev.x, prev.y, prev.w, prev.h, theme::BOX_FILL);
     const walkrect::Rect& r = p.push;
-    const uint16_t creamBE = (uint16_t)((theme::GBA_CREAM >> 8) | (theme::GBA_CREAM << 8));
-    for (int i = 0; i < r.w * r.h; ++i) buf[i] = creamBE;
+    const uint16_t fillBE = (uint16_t)((theme::BOX_FILL >> 8) | (theme::BOX_FILL << 8));
+    for (int i = 0; i < r.w * r.h; ++i) buf[i] = fillBE;
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
             int sx = mirror ? (w - 1 - x) : x;
@@ -92,91 +125,76 @@ void drawWalker(TFT_eSPI& t, const AppState& st, int step) {
     prev = p.next;
 }
 
-// Current synced lyric line, wrapped to up to two centered lines in the area
-// below the HP bar. Empty string clears the area.
-void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
-    const int ax = 123, ay = 196, aw = 184, ah = 40;
-    t.fillRect(ax, ay, aw, ah, theme::GBA_CREAM);   // clear (inside the HP panel)
-    char folded[160];
-    txt::asciiFold(currentLine, folded, sizeof(folded));
-    if (!folded[0]) return;
+static int tftWidth2(const std::string& s, void* ctx) {
+    return ((TFT_eSPI*)ctx)->textWidth(s.c_str(), 2);
+}
 
-    t.setTextColor(theme::POKE_RED, theme::GBA_CREAM);   // highlight the sung line
-    t.setTextDatum(MC_DATUM);
-    int cx = ax + aw / 2;
-    String s = folded;
-    if (t.textWidth(s, 2) <= aw) {
-        t.drawString(s, cx, ay + ah / 2, 2);
+static std::string g_lastLyric = "\x01";   // never a real line -> forces a draw
+void resetLyricArea() { g_lastLyric = "\x01"; }
+
+void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
+    char folded[160];
+    txt::asciiFold(currentLine ? currentLine : "", folded, sizeof(folded));
+    if (g_lastLyric == folded) return;
+    g_lastLyric = folded;
+
+    const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
+    t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
+    if (!folded[0]) return;
+    drawIcon(t, icons::Icon::Note, ix + 2, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    drawIcon(t, icons::Icon::Note, ix + iw - 14, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    const int textW = iw - 2 * 18;
+    textfit::TwoLines l = textfit::wrapTwo(folded, textW, tftWidth2, &t);
+    int cx = DLG_X + DLG_W / 2;
+    if (l.b.empty()) {
+        shadowText(t, l.a.c_str(), cx, DLG_Y + 20, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
     } else {
-        // greedy wrap into two lines on spaces
-        String l1, l2;
-        int sp = -1;
-        for (int i = 0; i < (int)s.length(); ++i) {
-            if (s[i] == ' ') {
-                if (t.textWidth(s.substring(0, i), 2) <= aw) sp = i; else break;
-            }
-        }
-        if (sp < 0) sp = s.length() / 2;   // no good space -> hard split
-        l1 = s.substring(0, sp);
-        l2 = s.substring(sp + (s[sp] == ' ' ? 1 : 0));
-        while (l2.length() > 1 && t.textWidth(l2 + "...", 2) > aw) l2.remove(l2.length() - 1);
-        if (t.textWidth(s.substring(sp), 2) > aw) l2 += "...";
-        t.drawString(l1, cx, ay + 10, 2);
-        t.drawString(l2, cx, ay + 28, 2);
+        shadowText(t, l.a.c_str(), cx, DLG_Y + 12, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        shadowText(t, l.b.c_str(), cx, DLG_Y + 29, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
     }
-    t.setTextDatum(TL_DATUM);
 }
 
 void drawOffline(TFT_eSPI& t, const char* msg) {
-    t.fillScreen(theme::GBA_NAVY);
-    t.fillRect(0, 0, 320, 22, theme::GBA_NAVY);
-    t.setTextColor(theme::GBA_CREAM, theme::GBA_NAVY);
-    t.setTextDatum(MC_DATUM);
-    t.drawString(msg, 160, 120, 4);
-    t.setTextDatum(TL_DATUM);
+    background(t);
+    topStrip(t);
+    dialogueBox(t, 20, 96, 280, 48);
+    shadowText(t, msg, 160, 120, 4, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
 }
 
 void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
-    t.fillScreen(0x6ADC);  // GBA sky blue background
+    background(t);
+    drawTopStrip(t, st);
 
-    // top bar
-    t.fillRect(0, 0, 320, 22, theme::GBA_NAVY);
-    t.setTextColor(theme::GBA_CREAM, theme::GBA_NAVY);
-    t.setTextDatum(TL_DATUM);
-    t.drawString("NOW PLAYING", 8, 5, 2);
-    t.setTextDatum(TR_DATUM);
-    t.drawString(fitText(t, st.deviceName[0] ? st.deviceName : "device", 120, 2), 312, 5, 2);
-    t.setTextDatum(TL_DATUM);
+    // album art battle box (main pushes the cover into ART_X/Y/W/H)
+    battleBox(t, 8, 24, 98, 98, Tab::None);
+    t.fillRect(ART_X, ART_Y, ART_W, ART_H, theme::SKY);
 
-    // LEFT column: album art box (cover pushed on top by main) ...
-    panel(t, 8, 26, 104, 104);
-    t.fillRect(11, 29, 98, 98, 0xBDD7);   // placeholder until the cover is pushed
+    // info box (opponent-style, slanted right end)
+    battleBox(t, INFO_X, INFO_Y, INFO_W, INFO_H, Tab::Right);
+    const int TW = INFO_W - 26;
+    shadowText(t, fitText(t, st.trackName[0] ? st.trackName : "Track title", TW, 2, true).c_str(),
+               INFO_X + 8, INFO_Y + 8, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+    shadowText(t, fitText(t, st.artist[0] ? st.artist : "Artist", TW, 2).c_str(),
+               INFO_X + 8, INFO_Y + 32, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+    char from[80];
+    snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
+    shadowText(t, fitText(t, from, TW, 2).c_str(),
+               INFO_X + 8, INFO_Y + 58, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
 
-    // ... and a roomy Pokemon box below (sprite pushed by main between the labels)
-    panel(t, 8, 134, 104, 104);
-    t.setTextDatum(MC_DATUM);
+    // status box (player-style, slanted left end): name + No., HP time, walker, bars
+    battleBox(t, STAT_X, STAT_Y, STAT_W, STAT_H, Tab::Left);
+    String nm = fitText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 130, 2, true);
+    // Dark battle-text grey: light type colours (grass, electric...) washed out on cream.
+    shadowText(t, nm.c_str(), 24, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
     if (st.pokedexNum > 0) {
         char no[12];
-        snprintf(no, sizeof(no), "No.%03d", st.pokedexNum);
-        t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
-        t.drawString(no, 60, 141, 1);
+        snprintf(no, sizeof(no), "No.%04d", st.pokedexNum);
+        shadowText(t, no, 24 + t.textWidth(nm, 2) + 6, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
     }
-    t.setTextColor(accent, theme::GBA_CREAM);
-    t.drawString(fitText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 100, 2), 60, 226, 2);
-    t.setTextDatum(TL_DATUM);
-
-    // RIGHT column (all text truncated to the panel width)
-    const int RW = 182;
-    panel(t, 118, 26, 194, 48);
-    t.setTextColor(theme::GBA_NAVY, theme::GBA_CREAM);
-    t.drawString(fitText(t, st.trackName[0] ? st.trackName : "Track title", RW, 2), 124, 32, 2);
-    t.drawString(fitText(t, st.artist[0] ? st.artist : "Artist", RW, 2), 124, 54, 2);
-
-    panel(t, 118, 78, 194, 38);
-    t.drawString("From:", 124, 82, 2);
-    t.drawString(fitText(t, st.context[0] ? st.context : "Playlist", RW, 2), 124, 98, 2);
-
-    panel(t, 118, 120, 194, 118);   // HP panel: label, walker band, bar, lyric
     drawProgressRegion(t, st);
+
+    dialogueBox(t, DLG_X, DLG_Y, DLG_W, DLG_H);
+    resetLyricArea();   // box just repainted; main draws the current line next
 }
+
 }

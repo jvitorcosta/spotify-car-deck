@@ -1,19 +1,6 @@
 #include "widgets.h"
 #include "theme.h"
 namespace ui {
-void panel(TFT_eSPI& t, int x, int y, int w, int h) {
-    t.fillRoundRect(x, y, w, h, 3, theme::GBA_CREAM);
-    t.drawRoundRect(x, y, w, h, 3, theme::GBA_NAVY);
-    t.drawRoundRect(x+1, y+1, w-2, h-2, 3, theme::GBA_GOLD);
-}
-void hpBar(TFT_eSPI& t, int x, int y, int w, int h, float frac) {
-    if (frac < 0) frac = 0; if (frac > 1) frac = 1;
-    t.fillRect(x, y, w, h, 0x2124);                 // dark bg (depleted portion)
-    t.drawRect(x, y, w, h, theme::GBA_NAVY);
-    // Drain from the LEFT: remaining fill stays anchored on the right edge.
-    int fw = (int)((w - 4) * frac);
-    t.fillRect(x + 2 + ((w - 4) - fw), y + 2, fw, h - 4, theme::hpColor(frac));
-}
 void drawButton(TFT_eSPI& t, const Button& b, bool active) {
     uint16_t bg = active ? theme::POKE_RED : theme::GBA_CREAM;
     uint16_t fg = active ? TFT_WHITE : theme::GBA_NAVY;
