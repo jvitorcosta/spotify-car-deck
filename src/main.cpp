@@ -10,7 +10,7 @@
 #include "ui/screen_now.h"
 #include "util/interp.h"
 #include "images/jpeg.h"
-#include "images/png.h"
+#include "images/walksprite.h"
 #include "images/cache.h"
 #include "pokemon/pokeapi.h"
 #include "lyrics/lrclib.h"
@@ -108,8 +108,10 @@ void loop() {
         uint16_t accent = theme::typeColor(g_state.pokeType);
         ui::drawNow(tft, view, accent);
         img::drawAlbumArt(tft, 11, 29, 98, 98);
-        img::drawSprite(tft, g_state.pokeSpriteUrl, g_state.pokedexNum, 60, 185);
-        img::loadWalkSprite(g_state.pokeSpriteUrl, g_state.pokedexNum, ui::WALK_SIZE);
+        if (!walk::loadPmd(g_state.pokedexNum))
+            walk::loadFallback(g_state.pokeSpriteUrl, g_state.pokedexNum);
+        Serial.printf("[heap] free=%u max=%u\n", (unsigned)ESP.getFreeHeap(),
+                      (unsigned)ESP.getMaxAllocHeap());
         ui::drawLyricArea(tft, currentLyric(view.progressMs));
 
         strcpy(lastTrack, g_state.trackName);

@@ -4,7 +4,7 @@
 #include "../util/text.h"
 #include "../util/interp.h"
 #include "../util/walkrect.h"
-#include "../images/png.h"
+#include "../images/walksprite.h"
 
 namespace ui {
 
@@ -59,17 +59,19 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
 void drawWalker(TFT_eSPI& t, const AppState& st, int step) {
     static const int SLACK = 8;
     static walkrect::Rect prev{0, 0, 0, 0};
-    static uint16_t buf[(img::WALK_MAX + 2 * SLACK) * (img::WALK_MAX + 1 + 2 * SLACK)];
-    if (!img::walkReady()) return;
-    const uint16_t* spr = img::walkBuffer();
-    const uint8_t* msk = img::walkMask();
-    int w = img::walkW(), h = img::walkH();
+    static uint16_t buf[(walk::MAX_W + 2 * SLACK) * (walk::BAND_H + 1 + 2 * SLACK)];
+    const walk::Info& wi = walk::info();
+    if (!wi.ready) return;
+    int fr = wi.pmd ? (step % wi.frames) : 0;   // Task 7 replaces this with real timing
+    const uint16_t* spr = walk::pixels(fr);
+    const uint8_t* msk = walk::mask(fr);
+    int w = wi.w, h = wi.h;
 
     float frac = st.durationMs ? (float)st.progressMs / (float)st.durationMs : 0.0f;
     // Stand on the drained/remaining boundary, inside the bar's inner fill area.
     int cx = interp::walkX(frac, HP_X + 2, HP_W - 4, w);
-    int bob = (step % 2) ? 1 : 0;                 // lift 1px every other frame
-    bool mirror = (step / 4) % 2;                 // turn every few frames = "step"
+    int bob = (!wi.pmd && (step % 2)) ? 1 : 0;    // fallback fake-walk only
+    bool mirror = !wi.pmd && ((step / 4) % 2);
     int x0 = cx - w / 2, y0 = HP_Y - h - bob;     // feet rest on the bar top
 
     // Sprite rect includes the 1px bob headroom; union with last frame's rect
