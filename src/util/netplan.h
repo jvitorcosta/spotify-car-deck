@@ -43,8 +43,8 @@ Step next(const Work& w);
 void done(Work& w, Step s);
 
 // Memory gate (largest free byte-addressable block, mem::byteLargest()). mbedTLS needs a
-// 16.7 KB input buffer plus ~3 KB per handshake, so TLS steps wait below TLS_NEED; optional
-// TLS steps (walker, prefetch) also leave 8 KB for the WiFi driver. Art is plain HTTP.
+// 16.7 KB input buffer plus ~3 KB per handshake, so TLS steps wait below TLS_NEED. Walker
+// downloads use the fixed scratch buffer, so they need no more than that. Art is plain HTTP.
 constexpr unsigned TLS_NEED = 20000;
 bool canRun(Step s, unsigned largest);
 }

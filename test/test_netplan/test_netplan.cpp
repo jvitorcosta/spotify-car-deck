@@ -74,9 +74,11 @@ void test_can_run_gates_on_largest_block() {
     TEST_ASSERT_FALSE(canRun(Step::Art, 5999));
     TEST_ASSERT_TRUE(canRun(Step::Lyrics, netplan::TLS_NEED));
     TEST_ASSERT_FALSE(canRun(Step::Lyrics, netplan::TLS_NEED - 1));
-    TEST_ASSERT_TRUE(canRun(Step::Walk, netplan::TLS_NEED + 8000));
-    TEST_ASSERT_FALSE(canRun(Step::Walk, netplan::TLS_NEED + 7999));
-    TEST_ASSERT_FALSE(canRun(Step::Prefetch, netplan::TLS_NEED + 7999));
+    // Walker downloads use the fixed scratch buffer (no malloc): they need only TLS.
+    TEST_ASSERT_TRUE(canRun(Step::Walk, netplan::TLS_NEED));
+    TEST_ASSERT_FALSE(canRun(Step::Walk, netplan::TLS_NEED - 1));
+    TEST_ASSERT_TRUE(canRun(Step::Prefetch, netplan::TLS_NEED));
+    TEST_ASSERT_FALSE(canRun(Step::Prefetch, netplan::TLS_NEED - 1));
     TEST_ASSERT_TRUE(canRun(Step::None, 0));
 }
 int main(int, char**) {

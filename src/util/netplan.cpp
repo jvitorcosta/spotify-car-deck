@@ -35,9 +35,9 @@ void done(Work& w, Step s) {
 bool canRun(Step s, unsigned largest) {
     switch (s) {
         case Step::Art:      return largest >= 6000;
-        case Step::Lyrics:   return largest >= TLS_NEED;
+        case Step::Lyrics:
         case Step::Walk:
-        case Step::Prefetch: return largest >= TLS_NEED + 8000;
+        case Step::Prefetch: return largest >= TLS_NEED;
         case Step::None:     return true;
     }
     return true;

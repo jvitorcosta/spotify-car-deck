@@ -6,6 +6,6 @@
 namespace mem {
 size_t byteFree();
 size_t byteLargest();
-void log(const char* where);   // "[mem] <where> free=... largest=..."
-void installFailHook();        // "[allocfail] <size> caps=... largest=... free=..." on every failed malloc
+void log(const char* where);   // "[mem] <where> free=... largest=... [allocfail=N (last ...)]"
+void installFailHook();        // counts failed allocations; log() reports and resets the count
 }
