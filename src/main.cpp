@@ -9,6 +9,7 @@
 #include "app_state.h"
 #include "core/shared.h"
 #include "core/nettask.h"
+#include "core/mem.h"
 #include "ui/theme.h"
 #include "ui/screen_now.h"
 #include "util/interp.h"
@@ -34,6 +35,7 @@ static const char* currentLyric(uint32_t posMs) {
 void setup() {
     Serial.begin(115200);
     delay(200);
+    mem::installFailHook();
     pinMode(PIN_BL, OUTPUT); digitalWrite(PIN_BL, HIGH);
     shared::begin();
     walk::begin();            // allocate both walker slots before the heap fragments
@@ -43,6 +45,7 @@ void setup() {
     tft.drawString("Connecting WiFi...", 10, 10, 2);
 
     if (net::connectAny()) {
+        mem::log("boot+wifi");
         tft.fillScreen(TFT_BLACK);
         tft.drawString("Spotify auth...", 10, 10, 2);
         if (spauth::loadRefreshToken().isEmpty()) {
@@ -91,8 +94,7 @@ void loop() {
         g_topSig[0] = '\0';
         img::drawAlbumArt(tft, ui::ART_X, ui::ART_Y, ui::ART_W, ui::ART_H);   // no-op if none yet
         ui::drawLyricArea(tft, currentLyric(view.progressMs));
-        Serial.printf("[heap] free=%u max=%u\n", (unsigned)ESP.getFreeHeap(),
-                      (unsigned)ESP.getMaxAllocHeap());
+        mem::log("track");
     } else {
         // Media arriving from the network task for the track on screen.
         uint8_t* jpeg = nullptr;

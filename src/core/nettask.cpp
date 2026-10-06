@@ -3,6 +3,7 @@
 #include <esp_system.h>
 #include <vector>
 #include "shared.h"
+#include "mem.h"
 #include "../net/wifi.h"
 #include "../spotify/client.h"
 #include "../images/jpeg.h"
@@ -67,8 +68,7 @@ static void doStep(netplan::Step step) {
             bool ok = img::downloadAlbumArt(s_st.albumArtUrl, &jpeg, &len);
             if (ok) shared::postArt(gen, jpeg, len);
             tock(ok ? "art" : "art failed");
-            Serial.printf("[heap] art len=%d free=%u max=%u\n", len,
-                          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+            mem::log("art");
             break;
         }
         case netplan::Step::Lyrics: {
@@ -113,9 +113,7 @@ static void run(void*) {
             spclient::poll(s_st);
             tock("poll");
             bool ok = s_st.status != PlaybackStatus::Offline;
-            if (!ok) Serial.printf("[heap] poll failed: free=%u max=%u minEver=%u\n",
-                                   (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(),
-                                   (unsigned)ESP.getMinFreeHeap());
+            if (!ok) mem::log("poll failed");
             if (!s_link.update(ok) && !ok) s_st.status = before;   // isolated failure: keep last state
             if (s_gen.update(s_st.trackName)) onTrackChange();
             else shared::publish(s_st);
@@ -127,7 +125,16 @@ static void run(void*) {
             shared::publish(s_st);
         } else {
             netplan::Step step = netplan::next(s_work);
-            if (step != netplan::Step::None) doStep(step);
+            static bool deferred = false;
+            if (step != netplan::Step::None) {
+                if (netplan::canRun(step, (unsigned)mem::byteLargest())) {
+                    deferred = false;
+                    doStep(step);
+                } else if (!deferred) {            // log once per deferral, retry after polls
+                    deferred = true;
+                    mem::log("defer step");
+                }
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }

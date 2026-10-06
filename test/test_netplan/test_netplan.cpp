@@ -68,6 +68,17 @@ void test_idle_work_is_none() {
     netplan::Work w{};
     TEST_ASSERT_EQUAL_INT((int)Step::None, (int)netplan::next(w));
 }
+void test_can_run_gates_on_largest_block() {
+    using netplan::canRun;
+    TEST_ASSERT_TRUE(canRun(Step::Art, 6000));          // plain HTTP: small
+    TEST_ASSERT_FALSE(canRun(Step::Art, 5999));
+    TEST_ASSERT_TRUE(canRun(Step::Lyrics, netplan::TLS_NEED));
+    TEST_ASSERT_FALSE(canRun(Step::Lyrics, netplan::TLS_NEED - 1));
+    TEST_ASSERT_TRUE(canRun(Step::Walk, netplan::TLS_NEED + 8000));
+    TEST_ASSERT_FALSE(canRun(Step::Walk, netplan::TLS_NEED + 7999));
+    TEST_ASSERT_FALSE(canRun(Step::Prefetch, netplan::TLS_NEED + 7999));
+    TEST_ASSERT_TRUE(canRun(Step::None, 0));
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_first_track_bumps_generation);
@@ -79,5 +90,6 @@ int main(int, char**) {
     RUN_TEST(test_link_stays_up_through_isolated_failures);
     RUN_TEST(test_link_down_after_three_consecutive_failures);
     RUN_TEST(test_idle_work_is_none);
+    RUN_TEST(test_can_run_gates_on_largest_block);
     return UNITY_END();
 }

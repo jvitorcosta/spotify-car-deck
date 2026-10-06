@@ -1,6 +1,7 @@
 #include "fetch.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include "../core/mem.h"
 
 namespace fetch {
 
@@ -30,7 +31,7 @@ bool httpsGet(const char* url, size_t maxLen, uint8_t** out, size_t* outLen, int
     uint8_t* data = (uint8_t*)malloc((size_t)len + 1);
     if (!data) {
         Serial.printf("[fetch] no heap for %d bytes (largest block %u)\n", len,
-                      (unsigned)ESP.getMaxAllocHeap());
+                      (unsigned)mem::byteLargest());
         https.end();
         return false;
     }
