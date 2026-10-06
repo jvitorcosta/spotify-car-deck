@@ -22,7 +22,7 @@
   `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 <test.cpp> <module.cpp...>` (exit 0 = pass).
 - Device build/flash: `powershell -ExecutionPolicy Bypass -File .devtools\pio.ps1 run -e esp32dev [-t upload --upload-port COM11]`; serial: `python .devtools\serial_read.py COM11 <seconds>`.
 - Secrets live only in `src/config.h` (git-ignored). Serial baud 115200.
-- Commits: one deliverable per commit, imperative subject, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Commits: Conventional Commits (`type(scope): subject`, e.g. `perf(net): ...`), one deliverable per commit, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
 
@@ -2029,7 +2029,7 @@ In `docs/superpowers/plans/2026-10-04-spotify-pokemon-deck.md`, under `## As-Bui
 
 ```bash
 git add CREDITS.md docs/superpowers/plans/2026-10-04-spotify-pokemon-deck.md
-git commit -m "Add CREDITS (PMDCollab CC BY-NC, PokeAPI, LRCLIB) and as-built note"
+git commit -m "docs: add CREDITS (PMDCollab CC BY-NC, PokeAPI, LRCLIB) and as-built note"
 ```
 
 ---
@@ -2309,7 +2309,7 @@ Expected: `[poke] #N Name (type)` printed immediately on the track change (no Po
 ```bash
 git add .devtools/gen_dex.py src/pokemon/dex_data.inc src/pokemon/dex.h src/pokemon/dex.cpp src/pokemon/pick.h src/pokemon/pick.cpp test/test_dex/test_dex.cpp src/main.cpp
 git rm src/pokemon/pokeapi.h src/pokemon/pokeapi.cpp
-git commit -m "Bundle the Pokedex in flash; drop the 4.2 s PokeAPI call per track"
+git commit -m "perf(pokemon): bundle the Pokedex in flash, drop the 4.2 s PokeAPI call per track"
 ```
 
 ---
@@ -2479,7 +2479,7 @@ Expected: `7 Tests 0 Failures 0 Ignored` / `OK`.
 
 ```bash
 git add src/util/netplan.h src/util/netplan.cpp test/test_netplan/test_netplan.cpp
-git commit -m "Add tested network schedule: track generations and per-track work order"
+git commit -m "feat(net): add tested network schedule for track generations and work order"
 ```
 
 ---
@@ -3238,7 +3238,7 @@ Record the observed per-step times in the ledger (used by Task 13's README table
 
 ```bash
 git add include/app_state.h src/core/shared.h src/core/shared.cpp src/core/nettask.h src/core/nettask.cpp src/images/jpeg.h src/images/jpeg.cpp src/images/walksprite.h src/images/walksprite.cpp src/ui/screen_now.cpp src/main.cpp
-git commit -m "Move networking to a core-0 task; progressive track change via shared mailbox"
+git commit -m "perf(net): move networking to a core-0 task with progressive track change"
 ```
 
 ---
@@ -3310,7 +3310,7 @@ Expected on serial after the first song's art and lyrics: `[walk] pmd #N …` th
 
 ```bash
 git add src/core/nettask.cpp
-git commit -m "Prefetch the next Pokemon's walker during the current song"
+git commit -m "perf(walk): prefetch the next Pokemon's walker during the current song"
 ```
 
 ---
@@ -3404,5 +3404,5 @@ Append to the `## As-Built Status` section of `docs/superpowers/plans/2026-10-04
 
 ```bash
 git add README.md docs/superpowers/plans/2026-10-04-spotify-pokemon-deck.md
-git commit -m "Add README with architecture and design/performance history"
+git commit -m "docs: add README with architecture and design/performance history"
 ```
