@@ -4,7 +4,8 @@
 
 namespace fetch {
 
-bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int* httpCode) {
+bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int* httpCode,
+                  bool allowPartial) {
     *outLen = 0;
     if (httpCode) *httpCode = 0;
     if (!url || !url[0] || !buf || cap < 2) return false;
@@ -23,6 +24,9 @@ bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int
         return false;
     }
     int len = https.getSize();
+    if (len > 0 && (size_t)len + 1 > cap && allowPartial) {
+        len = (int)cap - 1;              // caller only needs the beginning (e.g. AnimData.xml)
+    }
     if (len <= 0 || (size_t)len + 1 > cap) {
         Serial.printf("[fetch] bad length %d (cap %u)\n", len, (unsigned)cap);
         https.end();

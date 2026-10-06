@@ -136,10 +136,12 @@ static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW
 static const int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, Right, ...
 
 // Cache-or-download into the scratch buffer (NUL-terminated).
-static bool getCached(const String& path, const String& url, size_t* n, int* code) {
+// partial: the beginning is enough (AnimData.xml: Walk is anim index 0, near the top).
+static bool getCached(const String& path, const String& url, size_t* n, int* code,
+                      bool partial = false) {
     *code = 0;
     if (cache::readInto(path, g_scratch, SCRATCH, n)) return true;
-    if (!fetch::httpsGetInto(url.c_str(), g_scratch, SCRATCH, n, code)) return false;
+    if (!fetch::httpsGetInto(url.c_str(), g_scratch, SCRATCH, n, code, partial)) return false;
     cache::savePath(path, g_scratch, *n);
     return true;
 }
@@ -156,7 +158,7 @@ bool loadPmd(int dex) {
     String pngPath = "/pmd/" + String(dex) + ".png";
 
     size_t n = 0; int code = 0;
-    if (!getCached(xmlPath, String(base) + "AnimData.xml", &n, &code)) {
+    if (!getCached(xmlPath, String(base) + "AnimData.xml", &n, &code, true)) {
         Serial.printf("[walk] fallback (xml http %d)\n", code);
         return false;
     }
