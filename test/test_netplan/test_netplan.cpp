@@ -32,13 +32,15 @@ void test_empty_name_is_ignored_and_keeps_last() {
     TEST_ASSERT_EQUAL_UINT32(1, g.gen());
 }
 void test_order_without_prefetched_walker() {
+    // Art and lyrics first: they are what the user waits for; the walker is usually
+    // prefetched, and when it isn't it can follow.
     netplan::Work w = netplan::freshWork(false);
-    TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w));
-    netplan::done(w, Step::Walk);
     TEST_ASSERT_EQUAL_INT((int)Step::Art, (int)netplan::next(w));
     netplan::done(w, Step::Art);
     TEST_ASSERT_EQUAL_INT((int)Step::Lyrics, (int)netplan::next(w));
     netplan::done(w, Step::Lyrics);
+    TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w));
+    netplan::done(w, Step::Walk);
     TEST_ASSERT_EQUAL_INT((int)Step::Prefetch, (int)netplan::next(w));
     netplan::done(w, Step::Prefetch);
     TEST_ASSERT_EQUAL_INT((int)Step::None, (int)netplan::next(w));
@@ -46,6 +48,21 @@ void test_order_without_prefetched_walker() {
 void test_prefetched_walker_skips_walk_step() {
     netplan::Work w = netplan::freshWork(true);
     TEST_ASSERT_EQUAL_INT((int)Step::Art, (int)netplan::next(w));
+}
+void test_link_stays_up_through_isolated_failures() {
+    netplan::LinkGate g;
+    TEST_ASSERT_FALSE(g.update(false));   // one failed poll is not "no signal"
+    TEST_ASSERT_FALSE(g.update(false));
+    TEST_ASSERT_FALSE(g.update(true));    // success resets the count
+    TEST_ASSERT_FALSE(g.update(false));
+    TEST_ASSERT_FALSE(g.update(false));
+}
+void test_link_down_after_three_consecutive_failures() {
+    netplan::LinkGate g;
+    g.update(false); g.update(false);
+    TEST_ASSERT_TRUE(g.update(false));
+    TEST_ASSERT_TRUE(g.update(false));
+    TEST_ASSERT_FALSE(g.update(true));    // first good poll clears it
 }
 void test_idle_work_is_none() {
     netplan::Work w{};
@@ -59,6 +76,8 @@ int main(int, char**) {
     RUN_TEST(test_empty_name_is_ignored_and_keeps_last);
     RUN_TEST(test_order_without_prefetched_walker);
     RUN_TEST(test_prefetched_walker_skips_walk_step);
+    RUN_TEST(test_link_stays_up_through_isolated_failures);
+    RUN_TEST(test_link_down_after_three_consecutive_failures);
     RUN_TEST(test_idle_work_is_none);
     return UNITY_END();
 }

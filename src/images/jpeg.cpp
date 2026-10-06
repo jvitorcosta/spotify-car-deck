@@ -1,7 +1,6 @@
 #include "jpeg.h"
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include <TJpg_Decoder.h>
+#include "fetch.h"
 
 namespace img {
 
@@ -41,61 +40,19 @@ static bool bufOutput(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t* bm
     return true;
 }
 
-bool cacheAlbumArt(const char* url) {
-    if (g_buf) {
-        free(g_buf);
-        g_buf = nullptr;
-        g_len = 0;
-    }
-    if (!url || !url[0]) return false;
-
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient https;
-    if (!https.begin(client, url)) return false;
-
-    int rc = https.GET();
-    if (rc != 200) {
-        https.end();
-        return false;
-    }
-
-    int len = https.getSize();
-    if (len <= 0 || len > 60000) { // guard RAM; no PSRAM on this board
-        https.end();
-        return false;
-    }
-
-    uint8_t* buf = (uint8_t*)malloc(len);
-    if (!buf) {
-        https.end();
-        return false;
-    }
-
-    WiFiClient* stream = https.getStreamPtr();
-    int got = 0;
-    uint32_t start = millis();
-    while (https.connected() && got < len) {
-        size_t avail = stream->available();
-        if (avail) {
-            size_t want = (size_t)(len - got);
-            if (avail < want) want = avail;
-            got += stream->readBytes(buf + got, want);
-        } else {
-            if (millis() - start > 8000) break; // stalled download, bail out
-            delay(1);
-        }
-    }
-    https.end();
-
-    if (got != len) {
-        free(buf);
-        return false;
-    }
-
-    g_buf = buf;
-    g_len = len;
+bool downloadAlbumArt(const char* url, uint8_t** out, int* len) {
+    uint8_t* data = nullptr;
+    size_t n = 0;
+    if (!fetch::httpsGet(url, 60000, &data, &n)) return false;   // guard RAM; no PSRAM
+    *out = data;
+    *len = (int)n;
     return true;
+}
+
+void setAlbumArt(uint8_t* jpeg, int len) {
+    free(g_buf);
+    g_buf = jpeg;
+    g_len = jpeg ? len : 0;
 }
 
 bool drawAlbumArt(TFT_eSPI& t, int x, int y, int boxW, int boxH) {

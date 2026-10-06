@@ -15,9 +15,9 @@ bool TrackGen::update(const char* track) {
 Work freshWork(bool walkerReady) { return {!walkerReady, true, true, true}; }
 
 Step next(const Work& w) {
-    if (w.walk) return Step::Walk;
     if (w.art) return Step::Art;
     if (w.lyrics) return Step::Lyrics;
+    if (w.walk) return Step::Walk;
     if (w.prefetch) return Step::Prefetch;
     return Step::None;
 }

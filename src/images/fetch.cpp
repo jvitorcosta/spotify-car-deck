@@ -15,12 +15,25 @@ bool httpsGet(const char* url, size_t maxLen, uint8_t** out, size_t* outLen, int
     if (!https.begin(client, url)) return false;
     int code = https.GET();
     if (httpCode) *httpCode = code;
-    if (code != 200) { https.end(); return false; }
+    if (code != 200) {
+        Serial.printf("[fetch] http %d\n", code);
+        https.end();
+        return false;
+    }
     int len = https.getSize();
-    if (len <= 0 || (size_t)len > maxLen) { https.end(); return false; }
+    if (len <= 0 || (size_t)len > maxLen) {
+        Serial.printf("[fetch] bad length %d (max %u)\n", len, (unsigned)maxLen);
+        https.end();
+        return false;
+    }
 
     uint8_t* data = (uint8_t*)malloc((size_t)len + 1);
-    if (!data) { https.end(); return false; }
+    if (!data) {
+        Serial.printf("[fetch] no heap for %d bytes (largest block %u)\n", len,
+                      (unsigned)ESP.getMaxAllocHeap());
+        https.end();
+        return false;
+    }
     WiFiClient* s = https.getStreamPtr();
     int got = 0;
     uint32_t last = millis();

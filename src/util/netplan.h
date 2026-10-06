@@ -18,12 +18,27 @@ private:
     uint32_t gen_ = 0;
 };
 
+// "No signal" debounce. A single failed poll (TLS hiccup, HTTP -1) used to flip the
+// whole deck to the No-signal screen; only a run of failures means the link is down.
+class LinkGate {
+public:
+    static constexpr int FAILS_FOR_DOWN = 3;
+    // Feed each poll result; returns true while the link should be shown as down.
+    bool update(bool ok) {
+        fails_ = ok ? 0 : fails_ + 1;
+        return fails_ >= FAILS_FOR_DOWN;
+    }
+private:
+    int fails_ = 0;
+};
+
 enum class Step { None, Walk, Art, Lyrics, Prefetch };
 struct Work { bool walk, art, lyrics, prefetch; };   // true = still to do
 
 // Work list for a new track. walkerReady = a prefetched walker was promoted.
 Work freshWork(bool walkerReady);
-// Next step in priority order: Walk, Art, Lyrics, Prefetch; None when all done.
+// Next step in priority order: Art, Lyrics, Walk, Prefetch; None when all done.
+// Art and lyrics are what the listener waits for; the walker is usually prefetched.
 Step next(const Work& w);
 void done(Work& w, Step s);
 }

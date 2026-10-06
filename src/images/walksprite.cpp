@@ -8,32 +8,45 @@
 
 namespace walk {
 
-// Store layout: all frames' pixels first (keeps uint16 access aligned), then masks.
-// Heap-allocated once on first use and kept: static DRAM is too full for 16 KB.
-static uint8_t* g_pool = nullptr;
-static bool ensurePool() {
-    if (!g_pool) g_pool = (uint8_t*)malloc(CAP_BYTES);   // malloc is 4-byte aligned
-    if (!g_pool) Serial.println("[walk] no heap for frame pool");
-    return g_pool != nullptr;
-}
-static Info g_info{false, false, 0, 0, 0};
-static uint16_t g_durMs[MAX_FRAMES];
+// Slot layout: all frames' pixels first (keeps uint16 access aligned), then masks.
+// Pools are heap-allocated once in begin(): static DRAM had no room for them.
+static uint8_t* g_pool[2] = {nullptr, nullptr};
+static Info g_info[2] = {};
+static uint16_t g_dur[2][MAX_FRAMES];
+static int g_dex[2] = {0, 0};
+static int g_active = 0;
+static inline int staged() { return 1 - g_active; }
 
-const Info& info() { return g_info; }
-static uint16_t* pixelsW(int f) { return (uint16_t*)g_pool + f * g_info.w * g_info.h; }
-static uint8_t* maskW(int f) {
-    return g_pool + g_info.frames * g_info.w * g_info.h * 2 + f * g_info.w * g_info.h;
+bool begin() {
+    for (int i = 0; i < 2; ++i)
+        if (!g_pool[i]) g_pool[i] = (uint8_t*)malloc(CAP_BYTES);   // malloc is 4-byte aligned
+    bool ok = g_pool[0] && g_pool[1];
+    if (!ok) Serial.println("[walk] no heap for frame pools");
+    return ok;
 }
-const uint16_t* pixels(int f) { return pixelsW(f); }
-const uint8_t* mask(int f) { return maskW(f); }
-uint16_t durationMs(int f) { return (f >= 0 && f < g_info.frames) ? g_durMs[f] : 0; }
+
+static uint16_t* pixelsAt(int s, int f) {
+    return (uint16_t*)g_pool[s] + f * g_info[s].w * g_info[s].h;
+}
+static uint8_t* maskAt(int s, int f) {
+    return g_pool[s] + g_info[s].frames * g_info[s].w * g_info[s].h * 2 + f * g_info[s].w * g_info[s].h;
+}
+
+const Info& info() { return g_info[g_active]; }
+const uint16_t* pixels(int f) { return pixelsAt(g_active, f); }
+const uint8_t* mask(int f) { return maskAt(g_active, f); }
+uint16_t durationMs(int f) {
+    return (f >= 0 && f < g_info[g_active].frames) ? g_dur[g_active][f] : 0;
+}
+int stagedDex() { return g_info[staged()].ready ? g_dex[staged()] : 0; }
+void promote() { g_active = staged(); }
 
 static inline bool bitAt(const uint8_t* bits, int x) { return (bits[x >> 3] >> (7 - (x & 7))) & 1; }
 
 // ---------------------------------------------------------------- PMD sheet
 static const int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, Right, ...
 static const int SHEET_MAX_W = 512;
-static int s_fw, s_fh, s_rowY0, s_frames, s_pass, s_k, s_kept;
+static int s_fw, s_fh, s_rowY0, s_frames, s_pass, s_k, s_kept, s_slot;
 static walkanim::Box s_box;
 static walkanim::Fit s_fit;
 static uint16_t s_line[SHEET_MAX_W];     // static: keep the PNGdec callback stack small
@@ -56,8 +69,8 @@ static int pmdDraw(PNGDRAW* d) {
         if (walkanim::srcIndex(oy, s_fit.h, s_box.y0, bh) != ry) continue;
         for (int fi = 0; fi < s_kept; ++fi) {
             int f = fi * s_k;
-            uint16_t* px = pixelsW(fi);
-            uint8_t* m = maskW(fi);
+            uint16_t* px = pixelsAt(s_slot, fi);
+            uint8_t* m = maskAt(s_slot, fi);
             for (int ox = 0; ox < s_fit.w; ++ox) {
                 int sx = f * s_fw + walkanim::srcIndex(ox, s_fit.w, s_box.x0, bw);
                 px[oy * s_fit.w + ox] = s_line[sx];
@@ -90,11 +103,11 @@ static bool decodeRow(uint8_t* data, size_t n, const animdata::WalkAnim& a) {
             s_k = walkanim::keepEvery(s_frames, s_fit.w, s_fit.h, CAP_BYTES);
             if (s_k == 0) return false;
             s_kept = walkanim::keptCount(s_frames, s_k);
-            g_info = {false, true, s_fit.w, s_fit.h, s_kept};   // layout for pass 2 writes
+            g_info[s_slot] = {false, true, s_fit.w, s_fit.h, s_kept};   // layout for pass 2
         }
     }
-    walkanim::mergedDurationsMs(a.ticks, s_frames, s_k, g_durMs);
-    g_info.ready = true;
+    walkanim::mergedDurationsMs(a.ticks, s_frames, s_k, g_dur[s_slot]);
+    g_info[s_slot].ready = true;
     return true;
 }
 
@@ -109,8 +122,10 @@ static bool getCached(const String& path, const String& url, size_t maxLen,
 }
 
 bool loadPmd(int dex) {
-    g_info.ready = false;
-    if (dex < 1 || !ensurePool()) return false;
+    s_slot = staged();
+    g_info[s_slot].ready = false;
+    g_dex[s_slot] = 0;
+    if (dex < 1 || !g_pool[s_slot]) return false;
     char base[96];
     snprintf(base, sizeof(base),
              "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/%04d/", dex);
@@ -139,11 +154,13 @@ bool loadPmd(int dex) {
     if (!ok) {   // corrupt or unusable: drop the cache so the next play re-downloads
         cache::removePath(xmlPath);
         cache::removePath(pngPath);
-        g_info.ready = false;
+        g_info[s_slot].ready = false;
         Serial.println("[walk] fallback (sheet decode)");
         return false;
     }
-    Serial.printf("[walk] pmd %d frames %dx%d (k=%d)\n", g_info.frames, g_info.w, g_info.h, s_k);
+    g_dex[s_slot] = dex;
+    Serial.printf("[walk] pmd #%d %d frames %dx%d (k=%d)\n", dex, g_info[s_slot].frames,
+                  g_info[s_slot].w, g_info[s_slot].h, s_k);
     return true;
 }
 
@@ -167,8 +184,10 @@ static int fullDraw(PNGDRAW* d) {
 }
 
 bool loadFallback(const char* spriteUrl, int dex) {
-    g_info.ready = false;
-    if (!ensurePool()) return false;
+    int s = staged();
+    g_info[s].ready = false;
+    g_dex[s] = 0;
+    if (!g_pool[s]) return false;
     uint8_t* data = nullptr; size_t n = 0;
     if (!img::loadSpriteBytes(dex, spriteUrl, &data, &n)) {
         Serial.println("[walk] no sprite");
@@ -194,9 +213,9 @@ bool loadFallback(const char* spriteUrl, int dex) {
                 if (!walkanim::isEmpty(b)) {
                     int bw = b.x1 - b.x0 + 1, bh = b.y1 - b.y0 + 1;
                     walkanim::Fit fit = walkanim::fitBand(bw, bh, BAND_H, MAX_W);
-                    g_info = {false, false, fit.w, fit.h, 1};
-                    uint16_t* px = pixelsW(0);
-                    uint8_t* m = maskW(0);
+                    g_info[s] = {false, false, fit.w, fit.h, 1};
+                    uint16_t* px = pixelsAt(s, 0);
+                    uint8_t* m = maskAt(s, 0);
                     for (int y = 0; y < fit.h; ++y) {
                         int sy = walkanim::srcIndex(y, fit.h, b.y0, bh);
                         for (int x = 0; x < fit.w; ++x) {
@@ -205,8 +224,9 @@ bool loadFallback(const char* spriteUrl, int dex) {
                             m[y * fit.w + x] = f_mask[sy * f_w + sx];
                         }
                     }
-                    g_durMs[0] = 0;
-                    g_info.ready = ok = true;
+                    g_dur[s][0] = 0;
+                    g_dex[s] = dex;
+                    g_info[s].ready = ok = true;
                 }
             } else if (!f_px || !f_mask) {
                 Serial.printf("[walk] no heap for %dx%d sprite\n", f_w, f_h);
@@ -217,7 +237,7 @@ bool loadFallback(const char* spriteUrl, int dex) {
         png.close();
     }
     free(data);
-    if (ok) Serial.printf("[walk] fallback sprite %dx%d\n", g_info.w, g_info.h);
+    if (ok) Serial.printf("[walk] fallback #%d sprite %dx%d\n", dex, g_info[s].w, g_info[s].h);
     return ok;
 }
 

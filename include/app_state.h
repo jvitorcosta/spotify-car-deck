@@ -13,5 +13,6 @@ struct AppState {
     char deviceName[48];
     char deviceType[16];   // Spotify device type, e.g. "Smartphone"
     int pokedexNum; char pokeName[24]; char pokeType[16]; char pokeSpriteUrl[160];
+    uint32_t trackGen;     // increments on every track change (network task); 0 = none yet
     PlaybackStatus status;
 };

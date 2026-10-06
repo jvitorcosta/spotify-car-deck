@@ -9,6 +9,7 @@
 #include "../util/walkrect.h"
 #include "../util/walkanim.h"
 #include "../images/walksprite.h"
+#include "../core/shared.h"
 
 namespace ui {
 
@@ -90,6 +91,8 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
     static const int SLACK = 8;
     static walkrect::Rect prev{0, 0, 0, 0};
     static uint16_t buf[(walk::MAX_W + 2 * SLACK) * (walk::BAND_H + 1 + 2 * SLACK)];
+    // The network task may promote() a new walker at any time; read frames under the lock.
+    shared::Guard lockWalker;
     const walk::Info& wi = walk::info();
     if (!wi.ready) return;
 
