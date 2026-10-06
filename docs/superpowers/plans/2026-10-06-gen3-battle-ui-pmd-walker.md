@@ -3406,3 +3406,1687 @@ Append to the `## As-Built Status` section of `docs/superpowers/plans/2026-10-04
 git add README.md docs/superpowers/plans/2026-10-04-spotify-pokemon-deck.md
 git commit -m "docs: add README with architecture and design/performance history"
 ```
+
+---
+
+## Part 3 — Deterministic memory + resilience
+
+**Spec:** `docs/superpowers/specs/2026-10-06-memory-resilience-design.md` (measurements in §1).
+Execution order: 14 → 15 → 16 → 17 → 18 → 19 → 20. Commits: Conventional Commits.
+
+Additional Global Constraints for Part 3:
+- "Free memory" means **byte-addressable internal RAM**: `mem::byteFree()` / `mem::byteLargest()`
+  (`MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL`). `ESP.getFreeHeap()`/`getMaxAllocHeap()` include IRAM
+  and must not be used for decisions or logs.
+- Large buffers are allocated once in `setup()` **before WiFi starts**: walker slots + scratch
+  (`walk::begin`), album-art bitmap + tjpgd workspace (`art::begin`). The lyrics arena is static.
+- No `malloc(len)` per download in steady state.
+
+Review Focus for Part 3 (one test or device step each):
+1. **Allocation failures during a long session** — none. Covered: Task 20 10-minute session,
+   `[allocfail]` count must be 0.
+2. **Art for a quickly skipped track drawn on the next one / torn while redrawing** — never.
+   Covered: invalidate-before-write + push-under-lock (Task 15) + device skip step.
+3. **Sheets/sprites PNGdec can't buffer** — skipped without deleting the cache entry. Covered:
+   `test_walkanim` `pngFits` cases.
+4. **Stuck with WiFi up and no good poll** — restarts after 180 s; WiFi down never restarts.
+   Covered: `test_netplan` Health cases + Task 18 forced-failure device step.
+5. **Two different songs with the same title** — new Pokémon/art/lyrics. Covered: Task 19 uses
+   the track URI (device step with two same-title songs if available; otherwise code review).
+
+---
+
+### Task 14: Measure the right memory; gate steps on it
+
+**Files:**
+- Create: `src/core/mem.h`, `src/core/mem.cpp`
+- Modify: `src/util/netplan.h`, `src/util/netplan.cpp`, `test/test_netplan/test_netplan.cpp`
+- Modify: `src/core/nettask.cpp`, `src/main.cpp`
+
+**Interfaces:**
+- Produces: `size_t mem::byteFree()`, `size_t mem::byteLargest()`, `void mem::log(const char* where)`,
+  `void mem::installFailHook()`; `constexpr unsigned netplan::TLS_NEED = 20000;`
+  `bool netplan::canRun(Step s, unsigned largest)`.
+
+- [ ] **Step 1: Add failing tests to `test/test_netplan/test_netplan.cpp`** (register with `RUN_TEST`)
+
+```cpp
+void test_can_run_gates_on_largest_block() {
+    using netplan::canRun;
+    TEST_ASSERT_TRUE(canRun(Step::Art, 6000));          // plain HTTP: small
+    TEST_ASSERT_FALSE(canRun(Step::Art, 5999));
+    TEST_ASSERT_TRUE(canRun(Step::Lyrics, netplan::TLS_NEED));
+    TEST_ASSERT_FALSE(canRun(Step::Lyrics, netplan::TLS_NEED - 1));
+    TEST_ASSERT_TRUE(canRun(Step::Walk, netplan::TLS_NEED + 8000));
+    TEST_ASSERT_FALSE(canRun(Step::Walk, netplan::TLS_NEED + 7999));
+    TEST_ASSERT_FALSE(canRun(Step::Prefetch, netplan::TLS_NEED + 7999));
+    TEST_ASSERT_TRUE(canRun(Step::None, 0));
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_netplan\test_netplan.cpp src\util\netplan.cpp`
+Expected: `COMPILE FAILED` (`canRun` / `TLS_NEED` not declared).
+
+- [ ] **Step 3: Implement in `netplan.h` / `netplan.cpp`**
+
+In `netplan.h`, after `void done(Work& w, Step s);` add:
+
+```cpp
+// Memory gate (largest free byte-addressable block, mem::byteLargest()). mbedTLS needs a
+// 16.7 KB input buffer plus ~3 KB per handshake, so TLS steps wait below TLS_NEED; optional
+// TLS steps (walker, prefetch) also leave 8 KB for the WiFi driver. Art is plain HTTP.
+constexpr unsigned TLS_NEED = 20000;
+bool canRun(Step s, unsigned largest);
+```
+
+In `netplan.cpp`, add before the closing `}` of the namespace:
+
+```cpp
+bool canRun(Step s, unsigned largest) {
+    switch (s) {
+        case Step::Art:      return largest >= 6000;
+        case Step::Lyrics:   return largest >= TLS_NEED;
+        case Step::Walk:
+        case Step::Prefetch: return largest >= TLS_NEED + 8000;
+        case Step::None:     return true;
+    }
+    return true;
+}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run the Step 2 command. Expected: `10 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Create `src/core/mem.h` / `mem.cpp`**
+
+```cpp
+// mem.h
+#pragma once
+#include <stddef.h>
+// Byte-addressable internal RAM — what byte buffers, mbedTLS and the WiFi driver can use.
+// ESP.getFreeHeap()/getMaxAllocHeap() also count 32-bit-only IRAM and read ~60 KB too high;
+// that hid an exhausted heap (README "Design & performance history").
+namespace mem {
+size_t byteFree();
+size_t byteLargest();
+void log(const char* where);   // "[mem] <where> free=... largest=..."
+void installFailHook();        // "[allocfail] <size> caps=... largest=... free=..." on every failed malloc
+}
+```
+
+```cpp
+// mem.cpp
+#include "mem.h"
+#include <Arduino.h>
+#include <esp_heap_caps.h>
+
+namespace mem {
+
+static const uint32_t CAPS = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
+
+size_t byteFree() { return heap_caps_get_free_size(CAPS); }
+size_t byteLargest() { return heap_caps_get_largest_free_block(CAPS); }
+
+void log(const char* where) {
+    Serial.printf("[mem] %s free=%u largest=%u\n", where, (unsigned)byteFree(), (unsigned)byteLargest());
+}
+
+static void onAllocFail(size_t size, uint32_t caps, const char* fn) {
+    ets_printf("[allocfail] %u bytes caps=0x%x in %s; largest=%u free=%u\n", (unsigned)size,
+               (unsigned)caps, fn ? fn : "?", (unsigned)heap_caps_get_largest_free_block(caps),
+               (unsigned)heap_caps_get_free_size(caps));
+}
+
+void installFailHook() { heap_caps_register_failed_alloc_callback(onAllocFail); }
+
+}
+```
+
+- [ ] **Step 6: Use it**
+
+`src/main.cpp`:
+- remove the `// DIAG` `onAllocFail` function and the `heap_caps_register_failed_alloc_callback(onAllocFail);   // DIAG` line; add `#include "core/mem.h"` and, as the first line after `delay(200);` in `setup()`, `mem::installFailHook();`;
+- right after `if (net::connectAny()) {` add `mem::log("boot+wifi");`;
+- replace the `Serial.printf("[heap] free=%u max=%u\n", ...ESP.getFreeHeap()..., ...ESP.getMaxAllocHeap()...);` statement in the full-redraw branch with `mem::log("track");`.
+
+`src/core/nettask.cpp`:
+- add `#include "mem.h"`;
+- replace the `[heap] poll failed` printf (3 lines) with `if (!ok) mem::log("poll failed");`;
+- replace the `[heap] art len=...` printf (2 lines) with `mem::log("art");`;
+- in `run()`, replace
+
+```cpp
+            netplan::Step step = netplan::next(s_work);
+            if (step != netplan::Step::None) doStep(step);
+```
+
+with
+
+```cpp
+            netplan::Step step = netplan::next(s_work);
+            static bool deferred = false;
+            if (step != netplan::Step::None) {
+                if (netplan::canRun(step, (unsigned)mem::byteLargest())) {
+                    deferred = false;
+                    doStep(step);
+                } else if (!deferred) {            // log once per deferral, retry after polls
+                    deferred = true;
+                    mem::log("defer step");
+                }
+            }
+```
+
+- [ ] **Step 7: Build, flash, measure the budget**
+
+All host suites (Task 11 Step 9 list) → `OK`; build + flash; `python .devtools\serial_read.py COM11 120` with one skip.
+Expected: `[mem] boot+wifi free=… largest=…`, `[mem] track …`, `[mem] art …`. Record the numbers in the ledger — they are the Part 3 baseline (this firmware still holds the JPEG).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/core/mem.h src/core/mem.cpp src/util/netplan.h src/util/netplan.cpp test/test_netplan/test_netplan.cpp src/core/nettask.cpp src/main.cpp
+git commit -m "fix(mem): measure byte-addressable RAM and gate network steps on it"
+```
+
+---
+
+### Task 15: Album art streamed into a fixed 92×92 bitmap (plain HTTP)
+
+**Files:**
+- Create: `src/util/artmap.h`, `src/util/artmap.cpp`, `test/test_artmap/test_artmap.cpp`
+- Create: `src/images/art.h`, `src/images/art.cpp`
+- Delete: `src/images/jpeg.h`, `src/images/jpeg.cpp`
+- Modify: `src/core/shared.h`, `src/core/shared.cpp`, `src/core/nettask.cpp`, `src/main.cpp`
+
+**Interfaces:**
+- Produces: `artmap::Map{x0,y0,side,outW,outH}`, `artmap::cover(srcW,srcH,outW,outH)`, `artmap::srcX(m,ox)`, `artmap::srcY(m,oy)`, `artmap::pickScale(w,h,minSide)`, `artmap::plainHttpUrl(in,out,len)`; `art::W=92`, `art::H=92`, `bool art::begin()`, `bool art::fetch(const char* url)`, `const uint16_t* art::bitmap()`; `shared::artInvalidate()`, `shared::postArt(uint32_t gen)`, `shared::takeArt(uint32_t gen)`, `shared::artValidLocked(uint32_t gen)` (caller holds the lock).
+
+- [ ] **Step 1: Write the failing test `test/test_artmap/test_artmap.cpp`**
+
+```cpp
+#include <unity.h>
+#include <cstring>
+#include "../../src/util/artmap.h"
+
+void setUp() {}
+void tearDown() {}
+
+void test_cover_square_maps_full_range() {
+    artmap::Map m = artmap::cover(150, 150, 92, 92);
+    TEST_ASSERT_EQUAL_INT(0, artmap::srcX(m, 0));
+    TEST_ASSERT_EQUAL_INT(148, artmap::srcX(m, 91));
+    TEST_ASSERT_EQUAL_INT(148, artmap::srcY(m, 91));
+}
+void test_cover_landscape_crops_center() {
+    artmap::Map m = artmap::cover(200, 150, 92, 92);
+    TEST_ASSERT_EQUAL_INT(25, artmap::srcX(m, 0));
+    TEST_ASSERT_EQUAL_INT(0, artmap::srcY(m, 0));
+    TEST_ASSERT_EQUAL_INT(25 + 91 * 150 / 92, artmap::srcX(m, 91));
+}
+void test_pick_scale_keeps_short_side_at_least_box() {
+    TEST_ASSERT_EQUAL_INT(1, artmap::pickScale(300, 300, 92));   // 150 px
+    TEST_ASSERT_EQUAL_INT(2, artmap::pickScale(640, 640, 92));   // 160 px
+    TEST_ASSERT_EQUAL_INT(0, artmap::pickScale(64, 64, 92));     // smaller than the box
+    TEST_ASSERT_EQUAL_INT(3, artmap::pickScale(2000, 1000, 92)); // 125 px short side
+}
+void test_plain_http_url() {
+    char out[128];
+    artmap::plainHttpUrl("https://i.scdn.co/image/abc", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("http://i.scdn.co/image/abc", out);
+    artmap::plainHttpUrl("https://example.com/x.jpg", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("https://example.com/x.jpg", out);
+    char tiny[8];
+    artmap::plainHttpUrl("https://i.scdn.co/image/abc", tiny, sizeof(tiny));
+    TEST_ASSERT_EQUAL_INT(7, (int)strlen(tiny));   // truncated, terminated
+}
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_cover_square_maps_full_range);
+    RUN_TEST(test_cover_landscape_crops_center);
+    RUN_TEST(test_pick_scale_keeps_short_side_at_least_box);
+    RUN_TEST(test_plain_http_url);
+    return UNITY_END();
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_artmap\test_artmap.cpp`
+Expected: `COMPILE FAILED` (`artmap.h` missing).
+
+- [ ] **Step 3: Create `src/util/artmap.h` / `artmap.cpp`**
+
+```cpp
+// artmap.h
+#pragma once
+#include <cstddef>
+// Album-art geometry and URL helpers. PURE, host-tested.
+namespace artmap {
+// Nearest-neighbour cover-fill: the centred square of side min(srcW,srcH) maps onto outW x outH.
+struct Map { int x0, y0, side, outW, outH; };
+Map cover(int srcW, int srcH, int outW, int outH);
+inline int srcX(const Map& m, int ox) { return m.x0 + ox * m.side / m.outW; }
+inline int srcY(const Map& m, int oy) { return m.y0 + oy * m.side / m.outH; }
+// Largest tjpgd scale (0..3 = 1/1..1/8) whose shorter side is still >= minSide.
+int pickScale(int w, int h, int minSide);
+// "https://i.scdn.co/..." -> "http://i.scdn.co/..." (the CDN serves plain HTTP: no TLS needed);
+// any other URL is copied unchanged. Always NUL-terminates.
+void plainHttpUrl(const char* in, char* out, size_t len);
+}
+```
+
+```cpp
+// artmap.cpp
+#include "artmap.h"
+#include <cstring>
+
+namespace artmap {
+
+Map cover(int srcW, int srcH, int outW, int outH) {
+    int side = srcW < srcH ? srcW : srcH;
+    return {(srcW - side) / 2, (srcH - side) / 2, side, outW, outH};
+}
+
+int pickScale(int w, int h, int minSide) {
+    int s = w < h ? w : h;
+    for (int k = 3; k > 0; --k)
+        if ((s >> k) >= minSide) return k;
+    return 0;
+}
+
+void plainHttpUrl(const char* in, char* out, size_t len) {
+    static const char* PFX = "https://i.scdn.co/";
+    if (!len) return;
+    const char* src = in ? in : "";
+    if (strncmp(src, PFX, strlen(PFX)) == 0) {
+        strncpy(out, "http://", len - 1);
+        out[len - 1] = '\0';
+        size_t used = strlen(out);
+        if (used < len - 1) strncat(out, src + 8, len - 1 - used);   // skip "https://"
+    } else {
+        strncpy(out, src, len - 1);
+        out[len - 1] = '\0';
+    }
+}
+
+}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_artmap\test_artmap.cpp src\util\artmap.cpp`
+Expected: `4 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Create `src/images/art.h` / `art.cpp`**
+
+```cpp
+// art.h
+#pragma once
+#include <stdint.h>
+// Album art as a fixed 92x92 RGB565 bitmap, allocated once. The network task streams the
+// cover JPEG over plain HTTP straight into the decoder and writes the bitmap; the UI pushes it.
+// Replaced holding the whole JPEG (20-60 KB) plus a 21.6 KB UI decode buffer, which exhausted
+// byte-addressable RAM (README "Design & performance history").
+namespace art {
+constexpr int W = 92, H = 92;
+bool begin();                 // bitmap + tjpgd workspace; call in setup() before WiFi
+bool fetch(const char* url);  // network task only; caller invalidated the art first
+const uint16_t* bitmap();     // big-endian RGB565, W*H (pushImage with swap off)
+}
+```
+
+```cpp
+// art.cpp
+#include "art.h"
+#include <Arduino.h>
+#include <HTTPClient.h>
+#include <WiFiClient.h>
+#include "tjpgd.h"
+#include "../util/artmap.h"
+
+namespace art {
+
+static uint16_t* g_bmp = nullptr;
+static uint8_t* g_work = nullptr;
+static WiFiClient* s_in = nullptr;
+static uint32_t s_deadline = 0;
+static artmap::Map s_map;
+
+bool begin() {
+    if (!g_bmp) g_bmp = (uint16_t*)malloc(W * H * 2);
+    if (!g_work) g_work = (uint8_t*)malloc(TJPGD_WORKSPACE_SIZE);
+    if (g_bmp) memset(g_bmp, 0, W * H * 2);
+    bool ok = g_bmp && g_work;
+    if (!ok) Serial.println("[art] no heap for bitmap");
+    return ok;
+}
+
+const uint16_t* bitmap() { return g_bmp; }
+
+// tjpgd input: read (or skip, when buf == nullptr) up to len bytes from the HTTP stream.
+static size_t jdIn(JDEC*, uint8_t* buf, size_t len) {
+    size_t got = 0;
+    uint8_t sink[64];
+    while (got < len && (int32_t)(s_deadline - millis()) > 0) {
+        int a = s_in->available();
+        if (a <= 0) {
+            if (!s_in->connected()) break;
+            delay(1);
+            continue;
+        }
+        size_t want = len - got;
+        if ((size_t)a < want) want = (size_t)a;
+        if (!buf && want > sizeof(sink)) want = sizeof(sink);
+        int r = s_in->read(buf ? buf + got : sink, want);
+        if (r <= 0) break;
+        got += (size_t)r;
+    }
+    return got;
+}
+
+// tjpgd output: one decoded block (native RGB565); copy the pixels the cover map picks.
+static int jdOut(JDEC*, void* block, JRECT* r) {
+    const uint16_t* px = (const uint16_t*)block;
+    int bw = r->right - r->left + 1;
+    for (int oy = 0; oy < H; ++oy) {
+        int sy = artmap::srcY(s_map, oy);
+        if (sy < r->top || sy > r->bottom) continue;
+        for (int ox = 0; ox < W; ++ox) {
+            int sx = artmap::srcX(s_map, ox);
+            if (sx < r->left || sx > r->right) continue;
+            uint16_t c = px[(sy - r->top) * bw + (sx - r->left)];
+            g_bmp[oy * W + ox] = (uint16_t)((c >> 8) | (c << 8));   // store big-endian
+        }
+    }
+    return 1;
+}
+
+bool fetch(const char* url) {
+    if (!g_bmp || !g_work || !url || !url[0]) return false;
+    char plain[200];
+    artmap::plainHttpUrl(url, plain, sizeof(plain));
+    WiFiClient client;
+    HTTPClient http;
+    http.useHTTP10(true);
+    http.setTimeout(8000);
+    if (!http.begin(client, plain)) return false;
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("[art] http %d\n", code);
+        http.end();
+        return false;
+    }
+    s_in = http.getStreamPtr();
+    s_deadline = millis() + 10000;
+    JDEC jd;
+    JRESULT rc = jd_prepare(&jd, jdIn, g_work, TJPGD_WORKSPACE_SIZE, nullptr);
+    if (rc == JDR_OK) {
+        int s = artmap::pickScale(jd.width, jd.height, W);
+        s_map = artmap::cover(jd.width >> s, jd.height >> s, W, H);
+        rc = jd_decomp(&jd, jdOut, (uint8_t)s);
+    }
+    http.end();
+    if (rc != JDR_OK) Serial.printf("[art] decode error %d\n", (int)rc);
+    return rc == JDR_OK;
+}
+
+}
+```
+
+- [ ] **Step 6: Replace the art mailbox in `src/core/shared.*`**
+
+In `shared.h`, replace the `postArt(uint32_t gen, uint8_t* jpeg, int len)` and `takeArt(uint32_t gen, uint8_t** jpeg, int* len)` declarations with:
+
+```cpp
+// Album art lives in art::bitmap(). The network task calls artInvalidate() before writing it
+// and postArt(gen) after; the UI pushes it only while it is valid for the track on screen.
+void artInvalidate();
+void postArt(uint32_t gen);
+bool takeArt(uint32_t gen);            // true once per arrival (UI)
+bool artValidLocked(uint32_t gen);     // caller holds the lock (UI redraw + push)
+```
+
+In `shared.cpp`, replace the `g_art`, `g_artLen`, `g_artGen` statics with
+`static uint32_t g_artGen = 0;  // gen the bitmap is valid for (0 = invalid)` and
+`static bool g_artNew = false;`, and replace the `postArt` and `takeArt` definitions with:
+
+```cpp
+void artInvalidate() { Guard g; g_artGen = 0; g_artNew = false; }
+
+void postArt(uint32_t gen) {
+    Guard g;
+    if (gen != g_state.trackGen) return;   // stale: track moved on (bitmap stays invalid)
+    g_artGen = gen;
+    g_artNew = true;
+}
+
+bool takeArt(uint32_t gen) {
+    Guard g;
+    if (!g_artNew || g_artGen != gen) return false;
+    g_artNew = false;
+    return true;
+}
+
+bool artValidLocked(uint32_t gen) { return gen != 0 && g_artGen == gen; }
+```
+
+- [ ] **Step 7: Network side (`src/core/nettask.cpp`)**
+
+Replace `#include "../images/jpeg.h"` with `#include "../images/art.h"`, and the whole `case netplan::Step::Art: { ... }` block with:
+
+```cpp
+        case netplan::Step::Art: {
+            tick();
+            shared::artInvalidate();          // UI stops pushing the bitmap before we overwrite it
+            bool ok = art::fetch(s_st.albumArtUrl);
+            if (ok) shared::postArt(gen);
+            tock(ok ? "art" : "art failed");
+            mem::log("art");
+            break;
+        }
+```
+
+- [ ] **Step 8: UI side (`src/main.cpp`)**
+
+- Replace `#include "images/jpeg.h"` with `#include "images/art.h"`.
+- In `setup()`, right after `walk::begin();` add `art::begin();            // fixed album-art bitmap (before WiFi)`.
+- Add above `setup()`:
+
+```cpp
+// Pushes the album-art bitmap if it is valid for the track on screen. Check and push happen
+// under one lock so the network task cannot start overwriting the bitmap in between.
+static void pushArtIfValid(uint32_t gen) {
+    shared::Guard g;
+    if (shared::artValidLocked(gen))
+        tft.pushImage(ui::ART_X, ui::ART_Y, art::W, art::H, art::bitmap());
+}
+```
+
+- In the full-redraw branch, delete `img::setAlbumArt(nullptr, 0);` and replace
+  `img::drawAlbumArt(tft, ui::ART_X, ui::ART_Y, ui::ART_W, ui::ART_H);   // no-op if none yet` with
+  `pushArtIfValid(shownGen);   // back from a status screen: same track's art is still valid`.
+- In the steady-state branch, replace the whole `uint8_t* jpeg ... if (shared::takeArt(...)) { ... }` block with:
+
+```cpp
+        if (shared::takeArt(shownGen)) pushArtIfValid(shownGen);
+```
+
+- [ ] **Step 9: Delete the old JPEG path**
+
+`git rm src/images/jpeg.h src/images/jpeg.cpp`. `grep -rn "drawAlbumArt\|setAlbumArt\|downloadAlbumArt\|TJpgDec" src` prints nothing.
+
+- [ ] **Step 10: Host suites, build, flash, observe**
+
+All suites + `test_artmap` → `OK`; build + flash; serial 120 s with 3 skips (one burst of 3 quick skips).
+Expected: `[net] art ~0.5–1.5 s` (no TLS), cover appears on screen for each track and never shows the previous track's cover after the quick burst; `[mem] art` largest stays ≥ 25 000; no `[allocfail]`.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add src/util/artmap.h src/util/artmap.cpp test/test_artmap/test_artmap.cpp src/images/art.h src/images/art.cpp src/core/shared.h src/core/shared.cpp src/core/nettask.cpp src/main.cpp
+git rm src/images/jpeg.h src/images/jpeg.cpp
+git commit -m "perf(art): stream album art over plain HTTP into a fixed 92x92 bitmap"
+```
+
+---
+
+### Task 16: Walker loaders without large transients; PNG pitch guard; cache rules
+
+**Files:**
+- Modify: `src/util/walkanim.h`, `src/util/walkanim.cpp`, `test/test_walkanim/test_walkanim.cpp`
+- Modify: `src/images/fetch.h`, `src/images/fetch.cpp`, `src/images/cache.h`, `src/images/cache.cpp`, `src/images/png.h`, `src/images/png.cpp`
+- Rewrite: `src/images/walksprite.cpp`; modify `src/images/walksprite.h`
+
+**Interfaces:**
+- Produces: `bool walkanim::pngFits(int width, int pixelType, int bpp, int maxBuffered = 2562)`;
+  `bool fetch::httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int* httpCode = nullptr)`
+  (needs `len + 1 <= cap`; NUL-terminates); `bool cache::readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen)`;
+  `bool img::loadSpriteInto(int dex, const char* url, uint8_t* buf, size_t cap, size_t* outLen, bool* fromCache)`;
+  `walk::SCRATCH = 16384`.
+
+- [ ] **Step 1: Add failing tests to `test/test_walkanim/test_walkanim.cpp`** (register with `RUN_TEST`)
+
+```cpp
+// PNGdec 1.1.6 keeps the current and previous line (+16 B alignment each) in a 2562-byte buffer.
+void test_png_fits_rgba_up_to_316px() {
+    TEST_ASSERT_TRUE(pngFits(128, 6, 8));    // pitch 512
+    TEST_ASSERT_TRUE(pngFits(316, 6, 8));    // pitch 1264 -> 2560
+    TEST_ASSERT_FALSE(pngFits(317, 6, 8));   // pitch 1268 -> 2568
+    TEST_ASSERT_FALSE(pngFits(320, 6, 8));
+}
+void test_png_fits_indexed_wide() {
+    TEST_ASSERT_TRUE(pngFits(512, 3, 8));    // pitch 512
+    TEST_ASSERT_TRUE(pngFits(512, 3, 4));    // pitch 256
+}
+void test_png_fits_truecolor_and_gray_alpha() {
+    TEST_ASSERT_TRUE(pngFits(400, 2, 8));    // RGB pitch 1200 -> 2432
+    TEST_ASSERT_FALSE(pngFits(500, 2, 8));
+    TEST_ASSERT_TRUE(pngFits(600, 4, 8));    // gray+alpha pitch 1200
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_walkanim\test_walkanim.cpp src\util\walkanim.cpp`
+Expected: `COMPILE FAILED` (`pngFits` not declared).
+
+- [ ] **Step 3: Implement `pngFits`**
+
+`walkanim.h`, before the closing `}`:
+
+```cpp
+// True if PNGdec 1.1.6 can decode a `width`-pixel-wide PNG of this colour type (0 gray, 2 RGB,
+// 3 indexed, 4 gray+alpha, 6 RGBA) and bit depth: it keeps two lines (+16 B each) in a
+// maxBuffered-byte buffer and does not check RGBA widths above ~316 px itself.
+bool pngFits(int width, int pixelType, int bpp, int maxBuffered = 2562);
+```
+
+`walkanim.cpp`, before the closing `}`:
+
+```cpp
+bool pngFits(int width, int pixelType, int bpp, int maxBuffered) {
+    int ch = 4;
+    switch (pixelType) {
+        case 0: ch = 1; break;
+        case 2: ch = 3; break;
+        case 3: ch = 1; break;
+        case 4: ch = 2; break;
+        case 6: ch = 4; break;
+    }
+    int pitch = (width * ch * bpp + 7) / 8;
+    return 2 * (pitch + 16) <= maxBuffered;
+}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run the Step 2 command. Expected: `14 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Caller-buffer downloads and cache reads**
+
+Replace `src/images/fetch.h` with:
+
+```cpp
+#pragma once
+#include <stddef.h>
+#include <stdint.h>
+namespace fetch {
+// HTTPS GET of `url` into the caller's buffer (no per-download malloc while TLS is open).
+// Fails on non-200, unknown length, len + 1 > cap, or a stalled/short read (8 s handshake
+// and read timeouts). On success buf holds *outLen bytes plus a trailing NUL.
+bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen,
+                  int* httpCode = nullptr);
+}
+```
+
+Replace `src/images/fetch.cpp` with:
+
+```cpp
+#include "fetch.h"
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+
+namespace fetch {
+
+bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int* httpCode) {
+    *outLen = 0;
+    if (httpCode) *httpCode = 0;
+    if (!url || !url[0] || !buf || cap < 2) return false;
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(8);   // seconds; default 120 s blocks a half-dead link
+    HTTPClient https;
+    https.useHTTP10(true);           // plain (non-chunked) body so getSize() is the length
+    https.setTimeout(8000);
+    if (!https.begin(client, url)) return false;
+    int code = https.GET();
+    if (httpCode) *httpCode = code;
+    if (code != 200) {
+        Serial.printf("[fetch] http %d\n", code);
+        https.end();
+        return false;
+    }
+    int len = https.getSize();
+    if (len <= 0 || (size_t)len + 1 > cap) {
+        Serial.printf("[fetch] bad length %d (cap %u)\n", len, (unsigned)cap);
+        https.end();
+        return false;
+    }
+    WiFiClient* s = https.getStreamPtr();
+    int got = 0;
+    uint32_t last = millis();
+    while (got < len && (https.connected() || s->available())) {
+        size_t a = s->available();
+        if (a) {
+            size_t want = (size_t)(len - got);
+            if (a < want) want = a;
+            got += s->readBytes(buf + got, want);
+            last = millis();
+        } else {
+            if (millis() - last > 8000) break;   // stalled
+            delay(1);
+        }
+    }
+    https.end();
+    if (got != len) return false;
+    buf[len] = 0;
+    *outLen = (size_t)len;
+    return true;
+}
+
+}
+```
+
+In `src/images/cache.h`, replace the `readAll` declaration and its comment with:
+
+```cpp
+// Reads the whole file into the caller's buffer if it fits (n + 1 <= cap); NUL-terminates.
+bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen);
+```
+
+In `src/images/cache.cpp`, replace the `readAll` function with:
+
+```cpp
+bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen) {
+    *outLen = 0;
+    if (!ready) return false;
+    fs::File f = SD.open(path, FILE_READ);
+    if (!f) return false;
+    size_t n = f.size();
+    if (n == 0 || n + 1 > cap) { f.close(); return false; }
+    size_t got = f.read(buf, n);
+    f.close();
+    if (got != n) return false;
+    buf[n] = 0;
+    *outLen = n;
+    return true;
+}
+```
+
+Replace `src/images/png.h`'s `loadSpriteBytes` declaration and comment with:
+
+```cpp
+// PokeAPI sprite bytes for dex `dex` into the caller's buffer: SD cache if present, else HTTPS
+// download of `url` (saved to the cache). *fromCache tells the caller where they came from.
+bool loadSpriteInto(int dex, const char* url, uint8_t* buf, size_t cap, size_t* outLen,
+                    bool* fromCache);
+```
+
+and `src/images/png.cpp`'s `loadSpriteBytes` definition with:
+
+```cpp
+bool loadSpriteInto(int dex, const char* url, uint8_t* buf, size_t cap, size_t* outLen,
+                    bool* fromCache) {
+    *fromCache = cache::readInto(cache::spritePath(dex), buf, cap, outLen);
+    if (*fromCache) return true;
+    if (!fetch::httpsGetInto(url, buf, cap, outLen)) return false;
+    cache::save(dex, buf, *outLen);
+    return true;
+}
+```
+
+- [ ] **Step 6: Add the scratch constant to `src/images/walksprite.h`**
+
+After `constexpr int MAX_FRAMES = 16;` add:
+
+```cpp
+constexpr int SCRATCH    = 16384;   // one download buffer for XML / sheet / sprite (begin())
+```
+
+and change the `begin()` comment to `// Allocates both slots and the download scratch once (setup(), before WiFi).`
+
+- [ ] **Step 7: Rewrite `src/images/walksprite.cpp`**
+
+```cpp
+#include "walksprite.h"
+#include <Arduino.h>
+#include "png.h"
+#include "cache.h"
+#include "fetch.h"
+#include "../util/animdata.h"
+#include "../util/walkanim.h"
+
+namespace walk {
+
+// Slot layout: all frames' pixels first (keeps uint16 access aligned), then masks.
+// Pools and the download scratch are allocated once in begin(), before WiFi; loaders never
+// malloc (README "Design & performance history": per-download mallocs with TLS open
+// exhausted byte-addressable RAM).
+static uint8_t* g_pool[2] = {nullptr, nullptr};
+static uint8_t* g_scratch = nullptr;
+static Info g_info[2] = {};
+static uint16_t g_dur[2][MAX_FRAMES];
+static int g_dex[2] = {0, 0};
+static int g_active = 0;
+static inline int staged() { return 1 - g_active; }
+
+bool begin() {
+    for (int i = 0; i < 2; ++i)
+        if (!g_pool[i]) g_pool[i] = (uint8_t*)malloc(CAP_BYTES);   // malloc is 4-byte aligned
+    if (!g_scratch) g_scratch = (uint8_t*)malloc(SCRATCH);
+    bool ok = g_pool[0] && g_pool[1] && g_scratch;
+    if (!ok) Serial.println("[walk] no heap for frame pools");
+    return ok;
+}
+
+static uint16_t* pixelsAt(int s, int f) {
+    return (uint16_t*)g_pool[s] + f * g_info[s].w * g_info[s].h;
+}
+static uint8_t* maskAt(int s, int f) {
+    return g_pool[s] + g_info[s].frames * g_info[s].w * g_info[s].h * 2 + f * g_info[s].w * g_info[s].h;
+}
+
+const Info& info() { return g_info[g_active]; }
+const uint16_t* pixels(int f) { return pixelsAt(g_active, f); }
+const uint8_t* mask(int f) { return maskAt(g_active, f); }
+uint16_t durationMs(int f) {
+    return (f >= 0 && f < g_info[g_active].frames) ? g_dur[g_active][f] : 0;
+}
+int stagedDex() { return g_info[staged()].ready ? g_dex[staged()] : 0; }
+void promote() { g_active = staged(); }
+
+static inline bool bitAt(const uint8_t* bits, int x) { return (bits[x >> 3] >> (7 - (x & 7))) & 1; }
+
+// ------------------------------------------------- two-pass region decode (PMD + fallback)
+// Decodes rows [rowY0, rowY0+rowH) of a sheet holding `frames` frames of frameW pixels side
+// by side. Pass 1 finds the opaque bounding box shared by all frames; pass 2 writes the
+// cropped, band-fitted frames straight into the staged slot. No full-size copy.
+enum class Res { Ok, Unsupported, Corrupt };
+static const int SHEET_MAX_W = 512;
+static int s_frameW, s_rowH, s_rowY0, s_frames, s_pass, s_k, s_kept, s_slot;
+static bool s_keyMode;                   // no alpha channel: top-left colour is transparent
+static uint16_t s_key;
+static walkanim::Box s_box;
+static walkanim::Fit s_fit;
+static uint16_t s_line[SHEET_MAX_W];     // static: keep the PNGdec callback stack small
+static uint8_t s_bits[SHEET_MAX_W / 8];
+
+static inline bool opaqueAt(int x) {
+    return s_keyMode ? s_line[x] != s_key : bitAt(s_bits, x);
+}
+
+static int regionDraw(PNGDRAW* d) {
+    int ry = d->y - s_rowY0;
+    if (ry < 0 || ry >= s_rowH) return 1;
+    PNG& png = img::decoder();
+    memset(s_bits, 0xff, sizeof(s_bits));
+    png.getLineAsRGB565(d, s_line, PNG_RGB565_BIG_ENDIAN, 0x0000);
+    png.getAlphaMask(d, s_bits, 128);
+    if (s_pass == 1) {
+        if (s_keyMode && ry == 0) s_key = s_line[0];
+        for (int x = 0; x < s_frames * s_frameW; ++x)
+            if (opaqueAt(x)) walkanim::include(s_box, x % s_frameW, ry);
+        return 1;
+    }
+    int bw = s_box.x1 - s_box.x0 + 1, bh = s_box.y1 - s_box.y0 + 1;
+    for (int oy = 0; oy < s_fit.h; ++oy) {
+        if (walkanim::srcIndex(oy, s_fit.h, s_box.y0, bh) != ry) continue;
+        for (int fi = 0; fi < s_kept; ++fi) {
+            int f = fi * s_k;
+            uint16_t* px = pixelsAt(s_slot, fi);
+            uint8_t* m = maskAt(s_slot, fi);
+            for (int ox = 0; ox < s_fit.w; ++ox) {
+                int sx = f * s_frameW + walkanim::srcIndex(ox, s_fit.w, s_box.x0, bw);
+                px[oy * s_fit.w + ox] = s_line[sx];
+                m[oy * s_fit.w + ox] = opaqueAt(sx);
+            }
+        }
+    }
+    return 1;
+}
+
+// frameW <= 0 means "the whole image width is one frame" (fallback sprite).
+static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW, int maxFrames,
+                        bool pmd) {
+    PNG& png = img::decoder();
+    s_rowY0 = rowY0;
+    for (s_pass = 1; s_pass <= 2; ++s_pass) {
+        if (png.openRAM(data, (int)n, regionDraw) != PNG_SUCCESS) return Res::Corrupt;
+        if (s_pass == 1) {
+            int w = png.getWidth(), h = png.getHeight();
+            if (w > SHEET_MAX_W || !walkanim::pngFits(w, png.getPixelType(), png.getBpp())) {
+                png.close();
+                return Res::Unsupported;
+            }
+            s_frameW = frameW > 0 ? frameW : w;
+            s_rowH = rowH > 0 ? rowH : h;
+            if (h < s_rowY0 + s_rowH) { png.close(); return Res::Corrupt; }
+            s_frames = w / s_frameW;
+            if (maxFrames < s_frames) s_frames = maxFrames;
+            if (s_frames < 1) { png.close(); return Res::Corrupt; }
+            s_keyMode = !pmd && !png.hasAlpha();
+            s_box = walkanim::emptyBox();
+        }
+        int rc = png.decode(nullptr, 0);
+        png.close();
+        if (rc != PNG_SUCCESS) return Res::Corrupt;
+        if (s_pass == 1) {
+            if (walkanim::isEmpty(s_box)) return Res::Corrupt;
+            s_fit = walkanim::fitBand(s_box.x1 - s_box.x0 + 1, s_box.y1 - s_box.y0 + 1, BAND_H, MAX_W);
+            s_k = walkanim::keepEvery(s_frames, s_fit.w, s_fit.h, CAP_BYTES);
+            if (s_k == 0) return Res::Unsupported;
+            s_kept = walkanim::keptCount(s_frames, s_k);
+            g_info[s_slot] = {false, pmd, s_fit.w, s_fit.h, s_kept};   // layout for pass 2
+        }
+    }
+    return Res::Ok;
+}
+
+// ---------------------------------------------------------------- PMD sheet
+static const int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, Right, ...
+
+// Cache-or-download into the scratch buffer (NUL-terminated).
+static bool getCached(const String& path, const String& url, size_t* n, int* code) {
+    *code = 0;
+    if (cache::readInto(path, g_scratch, SCRATCH, n)) return true;
+    if (!fetch::httpsGetInto(url.c_str(), g_scratch, SCRATCH, n, code)) return false;
+    cache::savePath(path, g_scratch, *n);
+    return true;
+}
+
+bool loadPmd(int dex) {
+    s_slot = staged();
+    g_info[s_slot].ready = false;
+    g_dex[s_slot] = 0;
+    if (dex < 1 || !g_pool[s_slot] || !g_scratch) return false;
+    char base[96];
+    snprintf(base, sizeof(base),
+             "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/%04d/", dex);
+    String xmlPath = "/pmd/" + String(dex) + ".xml";
+    String pngPath = "/pmd/" + String(dex) + ".png";
+
+    size_t n = 0; int code = 0;
+    if (!getCached(xmlPath, String(base) + "AnimData.xml", &n, &code)) {
+        Serial.printf("[walk] fallback (xml http %d)\n", code);
+        return false;
+    }
+    animdata::WalkAnim a = animdata::parseWalk((const char*)g_scratch);   // scratch is free after this
+    if (!a.ok) {
+        cache::removePath(xmlPath);
+        Serial.println("[walk] fallback (no Walk anim)");
+        return false;
+    }
+    if (!getCached(pngPath, String(base) + "Walk-Anim.png", &n, &code)) {
+        Serial.printf("[walk] fallback (png http %d or > %d B)\n", code, SCRATCH);
+        return false;
+    }
+    Res r = decodeRegion(g_scratch, n, DIR_RIGHT * a.frameH, a.frameH, a.frameW, a.frames, true);
+    if (r != Res::Ok) {
+        g_info[s_slot].ready = false;
+        if (r == Res::Corrupt) {   // corrupt: drop the cache so the next play re-downloads
+            cache::removePath(xmlPath);
+            cache::removePath(pngPath);
+        }
+        Serial.printf("[walk] fallback (sheet %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");
+        return false;
+    }
+    walkanim::mergedDurationsMs(a.ticks, s_frames, s_k, g_dur[s_slot]);
+    g_info[s_slot].ready = true;
+    g_dex[s_slot] = dex;
+    Serial.printf("[walk] pmd #%d %d frames %dx%d (k=%d)\n", dex, g_info[s_slot].frames,
+                  g_info[s_slot].w, g_info[s_slot].h, s_k);
+    return true;
+}
+
+// ---------------------------------------------------------------- fallback
+bool loadFallback(const char* spriteUrl, int dex) {
+    s_slot = staged();
+    g_info[s_slot].ready = false;
+    g_dex[s_slot] = 0;
+    if (!g_pool[s_slot] || !g_scratch) return false;
+    size_t n = 0;
+    bool fromCache = false;
+    if (!img::loadSpriteInto(dex, spriteUrl, g_scratch, SCRATCH, &n, &fromCache)) {
+        Serial.println("[walk] no sprite");
+        return false;
+    }
+    Res r = decodeRegion(g_scratch, n, 0, 0, 0, 1, false);
+    if (r != Res::Ok) {
+        g_info[s_slot].ready = false;
+        if (r == Res::Corrupt && fromCache) cache::removePath(cache::spritePath(dex));
+        Serial.printf("[walk] no walker (sprite %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");
+        return false;
+    }
+    g_dur[s_slot][0] = 0;
+    g_info[s_slot].ready = true;
+    g_dex[s_slot] = dex;
+    Serial.printf("[walk] fallback #%d sprite %dx%d\n", dex, g_info[s_slot].w, g_info[s_slot].h);
+    return true;
+}
+
+}
+```
+
+- [ ] **Step 8: Host suites, build, flash, observe**
+
+All suites → `OK`; `grep -rn "httpsGet(\|readAll\|loadSpriteBytes" src` prints nothing; build + flash; serial 120 s with skips.
+Expected: `[walk] pmd #N …` for most tracks, `[walk] fallback …` + `[walk] fallback #N sprite …` when a sheet is missing/too big; `[mem] …` after each step; no `[allocfail]`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/util/walkanim.h src/util/walkanim.cpp test/test_walkanim/test_walkanim.cpp src/images/fetch.h src/images/fetch.cpp src/images/cache.h src/images/cache.cpp src/images/png.h src/images/png.cpp src/images/walksprite.h src/images/walksprite.cpp
+git commit -m "fix(walk): decode walkers from a fixed scratch buffer, guard PNG pitch, fix cache rules"
+```
+
+---
+
+### Task 17: Lyrics in a fixed arena (synced only, streamed JSON)
+
+**Files:**
+- Create: `src/util/lyricbuf.h`, `src/util/lyricbuf.cpp`, `test/test_lyricbuf/test_lyricbuf.cpp`
+- Delete: `src/util/lrc.h`, `src/util/lrc.cpp`, `test/test_lrc/test_lrc.cpp`
+- Rewrite: `src/lyrics/lrclib.h`, `src/lyrics/lrclib.cpp`
+- Modify: `src/core/shared.h`, `src/core/shared.cpp`, `src/core/nettask.cpp`, `src/main.cpp`
+
+**Interfaces:**
+- Produces: `lyricbuf::MAX_LINES = 256`, `lyricbuf::TEXT_CAP = 6144`, `struct lyricbuf::Line{uint32_t tMs; uint16_t off;}`, `struct lyricbuf::Lyrics{int n; Line lines[MAX_LINES]; char text[TEXT_CAP];}`, `int lyricbuf::parse(const char* lrc, Lyrics& out)`, `int lyricbuf::currentIndex(const Lyrics&, uint32_t posMs)`, `const char* lyricbuf::lineText(const Lyrics&, int i)`;
+  `lyricbuf::Lyrics& lyricsvc::arena()`, `bool lyricsvc::fetchInto(const AppState&, lyricbuf::Lyrics& out)`;
+  `shared::lyricsInvalidate()`, `shared::postLyrics(uint32_t gen)`, `bool shared::lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len)`.
+
+- [ ] **Step 1: Write the failing test `test/test_lyricbuf/test_lyricbuf.cpp`**
+
+```cpp
+#include <unity.h>
+#include <cstring>
+#include <string>
+#include "../../src/util/lyricbuf.h"
+
+static lyricbuf::Lyrics L;   // 8 KB: keep it off the stack
+void setUp() {}
+void tearDown() {}
+
+void test_parses_timestamped_lines() {
+    TEST_ASSERT_EQUAL_INT(2, lyricbuf::parse("[00:01.00]hello\n[00:03.50]world\n", L));
+    TEST_ASSERT_EQUAL_UINT32(1000, L.lines[0].tMs);
+    TEST_ASSERT_EQUAL_STRING("hello", lyricbuf::lineText(L, 0));
+    TEST_ASSERT_EQUAL_UINT32(3500, L.lines[1].tMs);
+    TEST_ASSERT_EQUAL_STRING("world", lyricbuf::lineText(L, 1));
+}
+void test_skips_malformed() {
+    TEST_ASSERT_EQUAL_INT(1, lyricbuf::parse("garbage\n[00:02.00]ok\n[bad]x\n", L));
+    TEST_ASSERT_EQUAL_STRING("ok", lyricbuf::lineText(L, 0));
+}
+void test_crlf_and_empty_text() {
+    TEST_ASSERT_EQUAL_INT(2, lyricbuf::parse("[00:01.00]a\r\n[00:02.00]\r\n", L));
+    TEST_ASSERT_EQUAL_STRING("a", lyricbuf::lineText(L, 0));
+    TEST_ASSERT_EQUAL_STRING("", lyricbuf::lineText(L, 1));
+}
+void test_sorts_by_time() {
+    lyricbuf::parse("[00:05.00]c\n[00:01.00]a\n[00:03.00]b\n", L);
+    TEST_ASSERT_EQUAL_STRING("a", lyricbuf::lineText(L, 0));
+    TEST_ASSERT_EQUAL_STRING("b", lyricbuf::lineText(L, 1));
+    TEST_ASSERT_EQUAL_STRING("c", lyricbuf::lineText(L, 2));
+}
+void test_current_index() {
+    lyricbuf::parse("[00:01.00]a\n[00:03.00]b\n[00:05.00]c\n", L);
+    TEST_ASSERT_EQUAL_INT(-1, lyricbuf::currentIndex(L, 500));
+    TEST_ASSERT_EQUAL_INT(0, lyricbuf::currentIndex(L, 2000));
+    TEST_ASSERT_EQUAL_INT(1, lyricbuf::currentIndex(L, 3000));
+    TEST_ASSERT_EQUAL_INT(2, lyricbuf::currentIndex(L, 9000));
+}
+void test_text_overflow_drops_the_rest() {
+    std::string s;
+    for (int i = 0; i < 200; ++i) {   // 200 lines x 50 chars > 6144 B of text
+        char tag[16];
+        snprintf(tag, sizeof(tag), "[%02d:%02d.00]", i / 60, i % 60);
+        s += tag + std::string(50, 'x') + "\n";
+    }
+    int n = lyricbuf::parse(s.c_str(), L);
+    TEST_ASSERT_TRUE(n > 100 && n < 200);
+    TEST_ASSERT_EQUAL_INT(50, (int)strlen(lyricbuf::lineText(L, n - 1)));   // last kept line intact
+}
+void test_null_and_out_of_range() {
+    TEST_ASSERT_EQUAL_INT(0, lyricbuf::parse(nullptr, L));
+    TEST_ASSERT_EQUAL_STRING("", lyricbuf::lineText(L, 0));
+    TEST_ASSERT_EQUAL_INT(-1, lyricbuf::currentIndex(L, 1000));
+}
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_parses_timestamped_lines);
+    RUN_TEST(test_skips_malformed);
+    RUN_TEST(test_crlf_and_empty_text);
+    RUN_TEST(test_sorts_by_time);
+    RUN_TEST(test_current_index);
+    RUN_TEST(test_text_overflow_drops_the_rest);
+    RUN_TEST(test_null_and_out_of_range);
+    return UNITY_END();
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_lyricbuf\test_lyricbuf.cpp`
+Expected: `COMPILE FAILED` (`lyricbuf.h` missing).
+
+- [ ] **Step 3: Create `src/util/lyricbuf.h` / `lyricbuf.cpp`**
+
+```cpp
+// lyricbuf.h
+#pragma once
+#include <cstdint>
+// Synced lyrics in one fixed arena (no per-line heap strings). PURE, host-tested.
+// Replaced std::vector<std::string>, whose scattered allocations pinned fragments of
+// byte-addressable RAM for the whole song (README "Design & performance history").
+namespace lyricbuf {
+constexpr int MAX_LINES = 256;
+constexpr int TEXT_CAP = 6144;
+struct Line { uint32_t tMs; uint16_t off; };
+struct Lyrics { int n; Line lines[MAX_LINES]; char text[TEXT_CAP]; };
+// Parses "[mm:ss.xx]text" lines into `out` in time order; lines without a valid tag are
+// skipped; once the arena is full the rest is dropped. Returns out.n.
+int parse(const char* lrc, Lyrics& out);
+int currentIndex(const Lyrics& l, uint32_t posMs);   // -1 before the first line
+const char* lineText(const Lyrics& l, int i);         // "" if out of range
+}
+```
+
+```cpp
+// lyricbuf.cpp
+#include "lyricbuf.h"
+#include <cstdlib>
+#include <cstring>
+
+namespace lyricbuf {
+
+// Parses the tag at the start of [p, end); on success sets tMs and the text start.
+static bool parseTag(const char* p, const char* end, uint32_t* tMs, const char** text) {
+    if (end - p < 10 || p[0] != '[') return false;
+    const char* close = (const char*)memchr(p, ']', end - p);
+    if (!close) return false;
+    const char* colon = (const char*)memchr(p, ':', close - p);
+    if (!colon) return false;
+    char* stop = nullptr;
+    long mm = strtol(p + 1, &stop, 10);
+    if (stop != colon) return false;
+    long ss = strtol(colon + 1, &stop, 10);
+    long cs = 0;
+    if (stop < close && *stop == '.') cs = strtol(stop + 1, nullptr, 10);
+    if (mm < 0 || ss < 0 || ss > 59) return false;
+    *tMs = (uint32_t)(mm * 60000 + ss * 1000 + cs * 10);
+    *text = close + 1;
+    return true;
+}
+
+int parse(const char* lrc, Lyrics& out) {
+    out.n = 0;
+    out.text[0] = '\0';
+    if (!lrc) return 0;
+    int used = 1;                         // text[0] is the shared "" for out-of-range lookups
+    for (const char* p = lrc; *p && out.n < MAX_LINES;) {
+        const char* eol = strchr(p, '\n');
+        const char* end = eol ? eol : p + strlen(p);
+        uint32_t t;
+        const char* txt;
+        if (parseTag(p, end, &t, &txt)) {
+            const char* tend = end;
+            while (tend > txt && (tend[-1] == '\r' || tend[-1] == '\n')) --tend;
+            int len = (int)(tend - txt);
+            if (used + len + 1 > TEXT_CAP) break;   // arena full: drop the rest
+            memcpy(out.text + used, txt, len);
+            out.text[used + len] = '\0';
+            out.lines[out.n++] = {t, (uint16_t)used};
+            used += len + 1;
+        }
+        if (!eol) break;
+        p = eol + 1;
+    }
+    for (int i = 1; i < out.n; ++i) {     // insertion sort by time (input is nearly sorted)
+        Line v = out.lines[i];
+        int j = i - 1;
+        while (j >= 0 && out.lines[j].tMs > v.tMs) { out.lines[j + 1] = out.lines[j]; --j; }
+        out.lines[j + 1] = v;
+    }
+    return out.n;
+}
+
+int currentIndex(const Lyrics& l, uint32_t posMs) {
+    int idx = -1;
+    for (int i = 0; i < l.n; ++i) {
+        if (l.lines[i].tMs <= posMs) idx = i; else break;
+    }
+    return idx;
+}
+
+const char* lineText(const Lyrics& l, int i) {
+    return (i >= 0 && i < l.n) ? l.text + l.lines[i].off : "";
+}
+
+}
+```
+
+Note: `parse` sets `out.text[0] = '\0'` and lines start at offset 1, so `lineText` for an
+empty-text line points at a real NUL inside the arena. If adding the 8 KB static arena overflows
+`dram0_0_seg` at link time (it happened once with a static pool), allocate it instead with `malloc`
+in a `lyricsvc::begin()` called from `setup()` right after `art::begin()` (ledger a Ruling).
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_lyricbuf\test_lyricbuf.cpp src\util\lyricbuf.cpp`
+Expected: `7 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Rewrite `src/lyrics/lrclib.h` / `lrclib.cpp`**
+
+```cpp
+// lrclib.h
+#pragma once
+#include "app_state.h"
+#include "../util/lyricbuf.h"
+namespace lyricsvc {
+// The one lyrics arena (8 KB, static). Written by the network task, read by the UI through
+// shared::lyricLine() — never directly.
+lyricbuf::Lyrics& arena();
+// Fetches synced lyrics from LRCLIB for the current track (original accented names) and
+// parses them into `out`. True if at least one synced line was found.
+bool fetchInto(const AppState& st, lyricbuf::Lyrics& out);
+}
+```
+
+```cpp
+// lrclib.cpp
+#include "lrclib.h"
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <cctype>
+
+namespace lyricsvc {
+
+static lyricbuf::Lyrics g_arena;
+lyricbuf::Lyrics& arena() { return g_arena; }
+
+static String urlEncode(const char* s) {
+    String out;
+    for (const char* p = s; *p; ++p) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c)) out += (char)c;
+        else { char b[4]; snprintf(b, sizeof(b), "%%%02X", c); out += b; }
+    }
+    return out;
+}
+
+bool fetchInto(const AppState& st, lyricbuf::Lyrics& out) {
+    out.n = 0;
+    if (!st.trackName[0]) return false;
+    String url = "https://lrclib.net/api/get?track_name=" + urlEncode(st.trackName) +
+                 "&artist_name=" + urlEncode(st.artist) +
+                 "&album_name=" + urlEncode(st.album) +
+                 "&duration=" + String(st.durationMs / 1000);
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setHandshakeTimeout(8);
+    HTTPClient https;
+    https.useHTTP10(true);          // plain body: parse straight from the stream
+    https.setTimeout(8000);
+    if (!https.begin(client, url)) return false;
+    https.addHeader("User-Agent", "PokeDeck/1.0 (ESP32)");
+    int rc = https.GET();
+    if (rc != 200) {                 // 404 = no match
+        Serial.printf("[lyrics] GET rc=%d\n", rc);
+        https.end();
+        return false;
+    }
+    JsonDocument filter;
+    filter["syncedLyrics"] = true;   // plain lyrics can't be timed; don't even buffer them
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, https.getStream(),
+                                               DeserializationOption::Filter(filter));
+    https.end();
+    if (err) { Serial.printf("[lyrics] json %s\n", err.c_str()); return false; }
+    int n = lyricbuf::parse(doc["syncedLyrics"] | "", out);
+    Serial.printf("[lyrics] synced lines=%d\n", n);
+    return n > 0;
+}
+
+}
+```
+
+- [ ] **Step 6: Replace the lyrics mailbox in `src/core/shared.*`**
+
+`shared.h`: remove `#include <vector>` and `#include "../util/lrc.h"`; replace the `postLyrics(uint32_t gen, std::vector<...>*)` and `takeLyrics(...)` declarations with:
+
+```cpp
+// Lyrics live in lyricsvc::arena(). The network task calls lyricsInvalidate() before parsing
+// into it and postLyrics(gen) after; the UI copies the current line under the lock.
+void lyricsInvalidate();
+void postLyrics(uint32_t gen);
+// Copies the synced line for posMs into out ("" if none / not valid for gen).
+void lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len);
+```
+
+`shared.cpp`: add `#include <string.h>` and `#include "../lyrics/lrclib.h"`; replace the `g_lyrics` / `g_lyricsGen` statics with `static uint32_t g_lyricsGen = 0;   // gen the arena is valid for (0 = invalid)`; replace `postLyrics` and `takeLyrics` with:
+
+```cpp
+void lyricsInvalidate() { Guard g; g_lyricsGen = 0; }
+
+void postLyrics(uint32_t gen) { Guard g; if (gen == g_state.trackGen) g_lyricsGen = gen; }
+
+void lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len) {
+    Guard g;
+    out[0] = '\0';
+    if (gen == 0 || g_lyricsGen != gen) return;
+    const lyricbuf::Lyrics& l = lyricsvc::arena();
+    strncpy(out, lyricbuf::lineText(l, lyricbuf::currentIndex(l, posMs)), len - 1);
+    out[len - 1] = '\0';
+}
+```
+
+- [ ] **Step 7: Network side (`src/core/nettask.cpp`)**
+
+Remove `#include <vector>` and `#include "../util/lrc.h"`; replace the whole `case netplan::Step::Lyrics: { ... }` block with:
+
+```cpp
+        case netplan::Step::Lyrics: {
+            tick();
+            shared::lyricsInvalidate();       // UI stops reading the arena before we overwrite it
+            if (lyricsvc::fetchInto(s_st, lyricsvc::arena())) shared::postLyrics(gen);
+            tock("lyrics");
+            mem::log("lyrics");
+            break;
+        }
+```
+
+- [ ] **Step 8: UI side (`src/main.cpp`)**
+
+- Remove `#include <vector>`, `#include "util/lrc.h"`, the `g_lrcLines` declaration, and the whole `currentLyric(...)` function.
+- In the full-redraw branch delete `g_lrcLines.clear();`; replace `ui::drawLyricArea(tft, currentLyric(view.progressMs));` with:
+
+```cpp
+        char line[160];
+        shared::lyricLine(shownGen, view.progressMs, line, sizeof(line));
+        ui::drawLyricArea(tft, line);
+```
+
+- In the steady-state branch delete the `std::vector<lrc::LrcLine>* lines ...` / `takeLyrics` block (4 lines), and inside `if (now - lastDraw >= 250) { ... }` replace `ui::drawLyricArea(tft, currentLyric(view.progressMs));` with:
+
+```cpp
+            char line[160];
+            shared::lyricLine(shownGen, view.progressMs, line, sizeof(line));
+            ui::drawLyricArea(tft, line);
+```
+
+- [ ] **Step 9: Delete the old LRC module**
+
+`git rm src/util/lrc.h src/util/lrc.cpp test/test_lrc/test_lrc.cpp`; `grep -rn "lrc::\|util/lrc.h" src test` prints nothing.
+
+- [ ] **Step 10: Host suites, build, flash, observe**
+
+All suites (without `test_lrc`, with `test_lyricbuf`, `test_artmap`) → `OK`; build + flash; serial 120 s.
+Expected: `[lyrics] synced lines=N` for songs LRCLIB has, the lyric line appears in the dialogue box and advances; `[mem] lyrics …` largest ≥ 25 000; no `[allocfail]`.
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add src/util/lyricbuf.h src/util/lyricbuf.cpp test/test_lyricbuf/test_lyricbuf.cpp src/lyrics/lrclib.h src/lyrics/lrclib.cpp src/core/shared.h src/core/shared.cpp src/core/nettask.cpp src/main.cpp
+git rm src/util/lrc.h src/util/lrc.cpp test/test_lrc/test_lrc.cpp
+git commit -m "perf(lyrics): stream synced lyrics into a fixed arena"
+```
+
+---
+
+### Task 18: Self-healing ladder
+
+**Files:**
+- Modify: `src/util/netplan.h`, `src/util/netplan.cpp`, `test/test_netplan/test_netplan.cpp`, `src/core/nettask.cpp`
+
+**Interfaces:**
+- Produces: `class netplan::Health { enum class Action { None, PauseOptional, Restart }; Action onPoll(bool ok, bool wifiUp, uint32_t nowMs); bool optionalPaused() const; }`, `Health::FAILS_TO_PAUSE = 2`, `Health::RESTART_AFTER_MS = 180000`.
+
+- [ ] **Step 1: Add failing tests** (register with `RUN_TEST`)
+
+```cpp
+using Act = netplan::Health::Action;
+void test_health_success_is_none() {
+    netplan::Health h;
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(true, true, 1000));
+    TEST_ASSERT_FALSE(h.optionalPaused());
+}
+void test_health_two_failures_pause_optional_until_success() {
+    netplan::Health h;
+    h.onPoll(true, true, 1000);
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, true, 5000));
+    TEST_ASSERT_EQUAL_INT((int)Act::PauseOptional, (int)h.onPoll(false, true, 9000));
+    TEST_ASSERT_TRUE(h.optionalPaused());
+    h.onPoll(true, true, 13000);
+    TEST_ASSERT_FALSE(h.optionalPaused());
+}
+void test_health_restart_after_180s_with_wifi_up() {
+    netplan::Health h;
+    h.onPoll(true, true, 1000);
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 1000 + 179000));
+    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, 1000 + 180000));
+}
+void test_health_wifi_down_never_restarts_and_resets_timer() {
+    netplan::Health h;
+    h.onPoll(true, true, 1000);
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, false, 500000));
+    // WiFi back at 500 s: the 180 s clock starts again from there
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 504000));
+    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, 500000 + 180000));
+}
+void test_health_first_call_failing_starts_clock() {
+    netplan::Health h;
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 900000));
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_netplan\test_netplan.cpp src\util\netplan.cpp`
+Expected: `COMPILE FAILED` (`Health` not a member).
+
+- [ ] **Step 3: Implement `Health` in `netplan.h`** (header-only, after `LinkGate`)
+
+```cpp
+// Self-healing ladder. A heap so fragmented that TLS can't allocate never recovered by itself
+// (README "Design & performance history"), so: 2 failed polls in a row with WiFi up pause the
+// optional downloads; 180 s without a good poll while WiFi is up -> restart. WiFi down is the
+// reconnect logic's job and restarts the 180 s clock.
+class Health {
+public:
+    enum class Action { None, PauseOptional, Restart };
+    static constexpr int FAILS_TO_PAUSE = 2;
+    static constexpr uint32_t RESTART_AFTER_MS = 180000;
+    Action onPoll(bool ok, bool wifiUp, uint32_t nowMs) {
+        if (!started_) { started_ = true; lastOk_ = nowMs; }
+        if (ok) { fails_ = 0; lastOk_ = nowMs; paused_ = false; return Action::None; }
+        ++fails_;
+        if (!wifiUp) { lastOk_ = nowMs; return Action::None; }
+        if (nowMs - lastOk_ >= RESTART_AFTER_MS) return Action::Restart;
+        if (fails_ >= FAILS_TO_PAUSE) { paused_ = true; return Action::PauseOptional; }
+        return Action::None;
+    }
+    bool optionalPaused() const { return paused_; }
+private:
+    int fails_ = 0;
+    uint32_t lastOk_ = 0;
+    bool started_ = false;
+    bool paused_ = false;
+};
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run the Step 2 command. Expected: `15 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Wire it in `src/core/nettask.cpp`**
+
+Add `static netplan::Health s_health;` next to `s_link`. After the poll block's `if (!ok) mem::log("poll failed");` add:
+
+```cpp
+            if (s_health.onPoll(ok, net::isOnline(), now) == netplan::Health::Action::Restart) {
+                mem::log("restart");
+                Serial.println("[net] no good poll for 180 s with WiFi up: restarting");
+                delay(200);
+                ESP.restart();
+            }
+```
+
+and in the step selection, gate optional work — replace
+`if (netplan::canRun(step, (unsigned)mem::byteLargest())) {` with
+
+```cpp
+                bool optional = step != netplan::Step::Art;
+                if (!(optional && s_health.optionalPaused()) &&
+                    netplan::canRun(step, (unsigned)mem::byteLargest())) {
+```
+
+- [ ] **Step 6: Build, flash, force the restart path once**
+
+Temporarily change `RESTART_AFTER_MS` to `30000` and make `spclient::poll` fail by setting `s_st.status = PlaybackStatus::Offline;` right after the `spclient::poll(s_st);` call (both marked `// TEMP`). Flash; serial 90 s.
+Expected: `[mem] poll failed …` every 4 s, then `[net] no good poll for 180 s with WiFi up: restarting` ~30 s later and a fresh boot (`rst:`). **Revert both TEMP edits**, re-run the Step 2 tests, rebuild, flash.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/util/netplan.h test/test_netplan/test_netplan.cpp src/core/nettask.cpp
+git commit -m "fix(net): pause optional work and restart when polls keep failing with WiFi up"
+```
+
+---
+
+### Task 19: Robustness — late hotspot, timeouts, staleness, track identity
+
+**Files:**
+- Modify: `include/app_state.h`, `src/spotify/client.cpp`, `src/util/netplan.h`, `test/test_netplan/test_netplan.cpp`, `src/core/nettask.h`, `src/core/nettask.cpp`, `src/main.cpp`
+
+**Interfaces:**
+- Produces: `AppState::trackUri[64]`, `AppState::lastPollOkMs`; `bool netplan::stale(uint32_t nowMs, uint32_t lastOkMs, uint32_t limitMs)`; `void nettask::start(bool spotifyReady)`.
+
+- [ ] **Step 1: Add failing test** (register with `RUN_TEST`)
+
+```cpp
+void test_stale_after_limit_and_handles_wrap() {
+    TEST_ASSERT_FALSE(netplan::stale(10000, 0, 20000));        // never polled: not "stale"
+    TEST_ASSERT_FALSE(netplan::stale(30000, 10000, 20000));
+    TEST_ASSERT_TRUE(netplan::stale(30001, 10000, 20000));
+    TEST_ASSERT_TRUE(netplan::stale(5000, 0xFFFFF000u, 2000)); // millis() wrapped
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_netplan\test_netplan.cpp src\util\netplan.cpp`
+Expected: `COMPILE FAILED` (`stale` not declared).
+
+- [ ] **Step 3: Implement in `netplan.h`** (after `Health`)
+
+```cpp
+// True when a successful poll happened (lastOkMs != 0) more than limitMs ago (wrap-safe).
+inline bool stale(uint32_t nowMs, uint32_t lastOkMs, uint32_t limitMs) {
+    return lastOkMs != 0 && nowMs - lastOkMs > limitMs;
+}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Expected: `16 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 5: Track URI + poll timestamp**
+
+`include/app_state.h`: after `char albumArtUrl[160];` add `char trackUri[64];     // spotify:track:… — identity for track changes`, and after `uint32_t trackGen;` add `uint32_t lastPollOkMs; // millis() of the last successful poll (0 = none yet)`.
+
+`src/spotify/client.cpp`:
+- in `onPlaying`, after the `copyStr(st.trackName, …)` line add `copyStr(st.trackUri, cp.trackUri, sizeof(st.trackUri));`;
+- in `begin()`, after `client.setInsecure();` add `client.setHandshakeTimeout(8);   // default 120 s froze polls on a half-dead hotspot`.
+
+- [ ] **Step 6: Network task: late hotspot, identity, staleness (`src/core/nettask.*`)**
+
+`nettask.h`: replace `void start();` and its comment with
+
+```cpp
+// Starts the task. spotifyReady = setup() already connected WiFi and ran spclient::begin();
+// otherwise the task connects WiFi itself (hotspot that comes up after the deck) first.
+void start(bool spotifyReady);
+```
+
+`nettask.cpp`:
+- add `static bool s_spotifyReady = false;` next to the other statics;
+- at the top of the `for (;;)` loop in `run()`, before `net::loop();`, add:
+
+```cpp
+        if (!s_spotifyReady) {                 // WiFi wasn't up at boot: keep trying
+            if (net::isOnline() || net::connectAny()) {
+                spclient::begin();
+                s_spotifyReady = true;
+                mem::log("late wifi");
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(5000));
+                continue;
+            }
+        }
+```
+
+- in the poll block, after `bool ok = s_st.status != PlaybackStatus::Offline;` add `if (ok) s_st.lastPollOkMs = millis();`;
+- replace `if (s_gen.update(s_st.trackName)) onTrackChange();` with
+
+```cpp
+            const char* id = s_st.trackUri[0] ? s_st.trackUri : s_st.trackName;   // URI: same-title songs differ
+            if (s_gen.update(id)) onTrackChange();
+```
+
+- replace the `void start()` definition with
+
+```cpp
+void start(bool spotifyReady) {
+    s_spotifyReady = spotifyReady;
+    xTaskCreatePinnedToCore(run, "net", 10240, nullptr, 1, nullptr, 0);
+}
+```
+
+(keep the stack-size comment above it).
+
+- [ ] **Step 7: UI (`src/main.cpp`)**
+
+- In `setup()`, replace the WiFi block with:
+
+```cpp
+    bool spotifyReady = false;
+    if (net::connectAny()) {
+        mem::log("boot+wifi");
+        tft.fillScreen(TFT_BLACK);
+        tft.drawString("Spotify auth...", 10, 10, 2);
+        if (spauth::loadRefreshToken().isEmpty()) {
+            tft.drawString("Open http://" + net::deviceIp() + "/", 10, 40, 2);
+        }
+        spauth::runSetupPortalIfNeeded();
+        spclient::begin();
+        spotifyReady = true;
+    } else {
+        tft.drawString("WiFi not found - retrying...", 10, 40, 2);
+    }
+    nettask::start(spotifyReady);   // always: it keeps retrying WiFi if the hotspot is late
+```
+
+- add `#include "util/netplan.h"` and change the offline condition to
+
+```cpp
+    if (!net::isOnline() || st.status == PlaybackStatus::Offline ||
+        netplan::stale(millis(), st.lastPollOkMs, 20000)) mode = 1;
+```
+
+- [ ] **Step 8: Host suites, build, flash, observe**
+
+All suites → `OK`; build + flash. Device checks:
+- Boot with the hotspot **off**, turn it on after ~30 s → `[wifi] connected`, `[mem] late wifi`, deck appears without a reboot.
+- Normal play: track changes still detected (`[net] track gen=…`).
+- Hotspot on but mobile data off (if possible) → "No signal..." within ~20–30 s, recovery when data returns.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add include/app_state.h src/spotify/client.cpp src/util/netplan.h test/test_netplan/test_netplan.cpp src/core/nettask.h src/core/nettask.cpp src/main.cpp
+git commit -m "fix(net): retry late hotspot, 8 s TLS timeouts, stale-poll signal, track URI identity"
+```
+
+---
+
+### Task 20: Verification session + history
+
+**Files:**
+- Create: `tools/capture_serial.py`, `tools/analyze_session.py`
+- Modify: `README.md`
+
+- [ ] **Step 1: Add the session tools**
+
+Create `tools/capture_serial.py` (timestamped capture; needs `pyserial`):
+
+```python
+"""Capture timestamped serial output: python tools/capture_serial.py COM11 600 out.log"""
+import sys
+import time
+
+import serial
+
+port, secs, path = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+with serial.Serial(port, 115200, timeout=1) as s, open(path, "w", encoding="utf-8") as out:
+    t0 = time.time()
+    while time.time() - t0 < secs:
+        line = s.readline()
+        if line:
+            out.write("%7.1f %s" % (time.time() - t0, line.decode(errors="replace")))
+            out.flush()
+print("wrote", path)
+```
+
+Create `tools/analyze_session.py` (the analysis used for the Part 2 session, extended): reads a
+timestamped capture (`<seconds> <serial line>`), prints per-step duration stats from `[net] <step> <ms>ms`,
+per-track arrival times (art / lyrics / walk / prefetch after `[net] track gen=`), `[mem]`
+free/largest min/max, and counts of `[allocfail]`, `-32512`, `poll HTTP -1`, `[fetch]`, restarts (`rst:`).
+
+```python
+"""Analyze a timestamped serial capture from the deck: python tools/analyze_session.py <log>"""
+import collections
+import re
+import statistics
+import sys
+
+lines = []
+for raw in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    m = re.match(r"\s*([\d.]+) (.*)", raw.rstrip("\n"))
+    if m:
+        lines.append((float(m.group(1)), m.group(2)))
+print("lines:", len(lines), " span: %.0fs" % (lines[-1][0] - lines[0][0] if lines else 0))
+
+steps = collections.defaultdict(list)
+for t, s in lines:
+    m = re.match(r"\[net\] (poll|player|art|art failed|lyrics|walk|prefetch|prefetch failed) (\d+)ms", s)
+    if m:
+        steps[m.group(1)].append(int(m.group(2)))
+print("\n== step durations (ms) ==")
+for k, v in sorted(steps.items()):
+    v = sorted(v)
+    print("%-16s n=%3d min=%5d median=%5d p90=%5d max=%5d" % (
+        k, len(v), v[0], statistics.median(v), v[int(0.9 * (len(v) - 1))], v[-1]))
+
+print("\n== tracks (seconds after the track change) ==")
+idx = [(i, t, s) for i, (t, s) in enumerate(lines) if s.startswith("[net] track gen=")]
+for k, (i, t, s) in enumerate(idx):
+    end = idx[k + 1][0] if k + 1 < len(idx) else len(lines)
+    got = {}
+    for t2, s2 in lines[i + 1:end]:
+        for key in ("art", "lyrics", "walk", "prefetch"):
+            if key not in got and re.match(r"\[net\] %s \d+ms" % key, s2):
+                got[key] = t2 - t
+    print("%-40s %s" % (s[:40], "  ".join("%s=%.1f" % kv for kv in got.items())))
+
+mem = [(int(a), int(b)) for _, s in lines for m in [re.search(r"\[mem\].*free=(\d+) largest=(\d+)", s)]
+       if m for a, b in [m.groups()]]
+if mem:
+    print("\n== byte-addressable RAM ==\nfree min=%d max=%d  largest min=%d max=%d" % (
+        min(a for a, _ in mem), max(a for a, _ in mem), min(b for _, b in mem), max(b for _, b in mem)))
+
+print("\n== failures ==")
+for name, pat in (("allocfail", r"\[allocfail\]"), ("TLS alloc -32512", "-32512"),
+                  ("poll HTTP -1", r"poll HTTP -1"), ("fetch errors", r"\[fetch\]"),
+                  ("restarts", r"rst:|restarting"), ("deferred steps", r"\[mem\] defer")):
+    print("%-18s %d" % (name, sum(1 for _, s in lines if re.search(pat, s))))
+```
+
+- [ ] **Step 2: Run a 10-minute logged session**
+
+Run `python tools/capture_serial.py COM11 600 <scratchpad>/session-part3.log` while music plays with normal skips, one burst of 3 quick skips and a pause/resume;
+then `python tools/analyze_session.py <capture>`.
+Expected: `allocfail 0`, `TLS alloc -32512 0`, no restarts, every track change shows art and (when
+LRCLIB has it) lyrics; byte-addressable largest block never below ~20 000.
+
+- [ ] **Step 3: Update `README.md`**
+
+Append to "Design & performance history" a numbered item **9. Deterministic memory (Part 3)**
+with: the failed-allocation table from the spec §1, the misleading-metric finding, the fixes
+(fixed art bitmap over plain HTTP, scratch-buffer walker loaders, lyrics arena, memory gate,
+self-healing ladder, late hotspot/timeouts/URI identity), and a before/after table from the two
+sessions (stuck time, `[allocfail]` count, art/lyrics times, byte-addressable free/largest). Remove
+the "Open:" item 8 text that this resolves, or mark it resolved. Mention `tools/analyze_session.py`
+under "Build & flash".
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tools/capture_serial.py tools/analyze_session.py README.md
+git commit -m "docs: record Part 3 memory/resilience results and add the session analyzer"
+```
