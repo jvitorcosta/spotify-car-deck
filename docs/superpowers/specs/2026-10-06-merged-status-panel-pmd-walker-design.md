@@ -21,18 +21,21 @@ per-frame network/decode, bounded RAM on the no-PSRAM ESP32.
 |---|---|---|
 | Top strip | 0,0 → 320×20 | "NOW PLAYING" + spinning CD · shuffle/repeat · device icon + name |
 | Album art | box 8,24 98×98 | cover, framed like a battle box |
-| **Info box** | 114,30 198×86 | TRACK TITLE · artist + `Lv.NN` · "From:" context |
+| **Info box** | 114,30 198×86 | TRACK TITLE · artist · "From:" context |
 | **Status box** | 8,126 304×70 | Pokémon name + `No.NNNN` · `HP m:ss/m:ss` · walker · HP bar · EXP bar |
 | **Dialogue box** | 4,200 312×38 | ♪ current lyric ♪ (up to 2 lines) |
 
-- **Info box:** track title (caps-folded, truncated), artist with `Lv.NN` right-aligned
-  (`NN` = Spotify track popularity 0–100), then `From: <context>`.
+- **Info box:** track title (caps-folded, truncated), artist, then `From: <context>`.
+  (No `Lv.`: track popularity isn't in the now-playing data and would cost an extra
+  Spotify request per track.)
 - **Status box:** row 1 = Pokémon name (type accent colour) + `No.NNNN` left,
   `HP m:ss/m:ss` (remaining/total) right; walk band (~32 px) where the walker stands
   on the bar; HP bar (x≈16, w≈288, h≈10) draining from the left; a 3 px **EXP bar**
   under it showing Spotify volume %.
 - **Dialogue box:** current synced lyric line, centred, up to 2 lines in font 2,
   ♪ icons either side; empty box when there is no line.
+- `AppState.repeat` uses our own convention 0 = off, 1 = context, 2 = track (the
+  library enum has 0 = track, which would show repeat-one before the first poll).
 - No gender symbol (would need an extra PokéAPI species request per song).
 
 ### 2.0 Gen-3 battle style
