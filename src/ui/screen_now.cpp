@@ -1,5 +1,5 @@
 #include "screen_now.h"
-#include <string>
+#include <cstring>
 #include "battle.h"
 #include "icons.h"
 #include "status_sprite.h"
@@ -10,6 +10,7 @@
 #include "../util/interp.h"
 #include "../util/walkrect.h"
 #include "../util/walkanim.h"
+#include "../util/lrcstream.h"
 #include "../images/walksprite.h"
 #include "../core/shared.h"
 
@@ -115,13 +116,16 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
     prev = p.next;
 }
 
-static std::string g_lastLyric = "\x01";   // never a real line -> forces a draw
-void resetLyricArea() { g_lastLyric = "\x01"; }
+// Fixed buffer, not std::string: the UI loop shouldn't touch the heap on lyric changes.
+// Lyric lines are at most lrcstream::LINE_CAP - 1 bytes, so a full compare always fits.
+static char g_lastLyric[lrcstream::LINE_CAP] = "\x01";   // never a real line -> forces a draw
+void resetLyricArea() { g_lastLyric[0] = '\x01'; g_lastLyric[1] = '\0'; }
 
 void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
     const char* line = currentLine ? currentLine : "";
-    if (g_lastLyric == line) return;
-    g_lastLyric = line;
+    if (strncmp(g_lastLyric, line, sizeof(g_lastLyric)) == 0) return;
+    strncpy(g_lastLyric, line, sizeof(g_lastLyric) - 1);
+    g_lastLyric[sizeof(g_lastLyric) - 1] = '\0';
 
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
     t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
