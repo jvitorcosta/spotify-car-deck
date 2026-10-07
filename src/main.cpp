@@ -17,6 +17,28 @@
 #include "images/art.h"
 #include "images/walksprite.h"
 #include "images/cache.h"
+#include <esp_system.h>
+#include <esp_task_wdt.h>
+
+// Task watchdog: 30 s instead of the default 5 s. SpotifyArduino's response loops spin
+// (yield() never lets the lower-priority idle task run) and on a reset TLS connection one spun
+// ~11 s on core 0, so the idle task missed the 5 s watchdog and the board rebooted
+// (the "unexplained rst:0xc"). A genuine hang still reboots, after 30 s.
+static const uint32_t TASK_WDT_S = 30;
+
+static const char* resetReason() {
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:  return "power-on";
+        case ESP_RST_SW:       return "software (self-heal restart)";
+        case ESP_RST_PANIC:    return "panic";
+        case ESP_RST_INT_WDT:  return "interrupt watchdog";
+        case ESP_RST_TASK_WDT: return "task watchdog";
+        case ESP_RST_WDT:      return "other watchdog";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_EXT:      return "external pin";
+        default:               return "other";
+    }
+}
 
 // UI loop (core 1): draws only. All network/SD work runs in core/nettask on core 0 and
 // arrives through core/shared (README "Design & performance history").
@@ -35,6 +57,8 @@ static void pushArtIfValid(uint32_t gen) {
 void setup() {
     Serial.begin(115200);
     delay(200);
+    Serial.printf("[boot] reset reason: %s\n", resetReason());
+    esp_task_wdt_init(TASK_WDT_S, true);   // reconfigures the already-running watchdog
     mem::installFailHook();
     pinMode(PIN_BL, OUTPUT); digitalWrite(PIN_BL, HIGH);
     shared::begin();
