@@ -24,14 +24,16 @@ constexpr uint16_t TEXT        = rgb(0x40, 0x40, 0x40);
 constexpr uint16_t TEXT_SHADOW = rgb(0xD8, 0xD0, 0xB0);
 constexpr uint16_t HP_TAG      = rgb(0x48, 0x48, 0x48);
 constexpr uint16_t HP_TAG_TEXT = rgb(0xF8, 0xB8, 0x00);
-constexpr uint16_t HP_EMPTY    = rgb(0x50, 0x60, 0x58);
+// Darker than first tuned (0x506058): red HP was 2.1:1 against it, hard to see in a car.
+constexpr uint16_t HP_EMPTY    = rgb(0x28, 0x30, 0x28);
 constexpr uint16_t EXP_BLUE    = rgb(0x40, 0xC8, 0xF8);
 constexpr uint16_t DLG_FRAME   = rgb(0x28, 0x48, 0x60);
 constexpr uint16_t DLG_LINE    = rgb(0x68, 0xA0, 0xB8);
 constexpr uint16_t DLG_FILL    = rgb(0xF8, 0xF8, 0xF8);
 constexpr uint16_t DLG_SHADOW  = rgb(0xD0, 0xD0, 0xD0);
 constexpr uint16_t TOP_DARK    = rgb(0x28, 0x30, 0x38);
-constexpr uint16_t ICON_OFF    = rgb(0x60, 0x68, 0x70);
+// Was 0x606870 (2.4:1 on the top strip): "off" icons vanished in daylight.
+constexpr uint16_t ICON_OFF    = rgb(0x80, 0x88, 0x90);
 constexpr uint16_t CD_SILVER   = rgb(0xC0, 0xC0, 0xC8);
 
 // Pokémon HP-bar colours (fill + lighter 2 px shine line on top).
