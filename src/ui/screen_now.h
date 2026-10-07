@@ -17,7 +17,9 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent);
 void drawTopStrip(TFT_eSPI& t, const AppState& st);
 // Spinning CD after "NOW PLAYING" (frame 0..3).
 void drawCdFrame(TFT_eSPI& t, int frame);
-// HP time text + HP bar + EXP (volume) bar, repainted in place.
+// Spinning Poke Ball before the time (frame 0..pokeball::FRAMES-1).
+void drawPokeballFrame(TFT_eSPI& t, int frame);
+// Poke Ball + time text + HP bar + EXP (volume) bar, repainted in place.
 void drawProgressRegion(TFT_eSPI& t, const AppState& st);
 // Walker on the HP bar. animMs = play-time animation clock (PMD frame timing);
 // step = frame counter (fallback bob/mirror).

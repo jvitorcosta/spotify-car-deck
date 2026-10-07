@@ -12,6 +12,7 @@
 #include "ui/theme.h"
 #include "ui/screen_now.h"
 #include "ui/cjkdata.h"
+#include "ui/pokeball.h"
 #include "util/interp.h"
 #include "util/netplan.h"
 #include "images/art.h"
@@ -135,7 +136,7 @@ void loop() {
         if (shared::takeWalker(shownGen)) walkerOn = true;
 
         static uint32_t lastDraw = 0, lastWalk = 0, lastCd = 0, lastTick = 0, animMs = 0;
-        static int walkStep = 0, cdFrame = 0;
+        static int walkStep = 0, cdFrame = 0, ballFrame = 0;
         uint32_t now = millis();
         uint32_t dt = now - lastTick;
         lastTick = now;
@@ -152,6 +153,7 @@ void loop() {
         if (st.isPlaying && now - lastCd >= 160) {   // spinning CD ~6 fps
             lastCd = now;
             ui::drawCdFrame(tft, cdFrame = (cdFrame + 1) & 3);
+            ui::drawPokeballFrame(tft, ballFrame = (ballFrame + 1) % pokeball::FRAMES);
         }
         if (now - lastDraw >= 250) {
             lastDraw = now;

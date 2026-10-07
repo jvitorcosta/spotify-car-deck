@@ -2,6 +2,7 @@
 #include <cstring>
 #include "battle.h"
 #include "icons.h"
+#include "pokeball.h"
 #include "status_sprite.h"
 #include "labels.h"
 #include "textdraw.h"
@@ -62,15 +63,45 @@ void drawTopStrip(TFT_eSPI& t, const AppState& st) {
              st.shuffle ? theme::BOX_FILL : theme::ICON_OFF, theme::TOP_DARK);
 }
 
+// Spinning Poke Ball left of the time (it replaced the "HP " prefix); position follows the
+// time's width, frame advances with the top-bar CD (main.cpp).
+static const int BALL_Y = 130;
+static int g_ballX = -1;   // left edge, set by drawProgressRegion
+static int g_ballFrame = 0;
+
+static void drawBall(TFT_eSPI& t) {
+    if (g_ballX < 0) return;
+    uint16_t buf[pokeball::SIZE * pokeball::SIZE];
+    for (int y = 0; y < pokeball::SIZE; ++y)
+        for (int x = 0; x < pokeball::SIZE; ++x) {
+            uint16_t c;
+            switch (pokeball::pixel(x, y, g_ballFrame)) {
+                case pokeball::Px::Red:   c = theme::POKE_RED; break;
+                case pokeball::Px::White: c = TFT_WHITE; break;
+                case pokeball::Px::Dark:  c = theme::TEXT; break;
+                default:                  c = theme::BOX_FILL; break;
+            }
+            buf[y * pokeball::SIZE + x] = (uint16_t)((c >> 8) | (c << 8));   // pushImage is big-endian
+        }
+    t.pushImage(g_ballX, BALL_Y, pokeball::SIZE, pokeball::SIZE, buf);
+}
+
+void drawPokeballFrame(TFT_eSPI& t, int frame) {
+    g_ballFrame = frame;
+    drawBall(t);
+}
+
 void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
     uint32_t rem = (st.durationMs > st.progressMs) ? (st.durationMs - st.progressMs) : 0;
     uint32_t tot = st.durationMs;
     float hpFrac = st.durationMs ? (float)rem / (float)st.durationMs : 1.0f;
     char tbuf[24];
-    snprintf(tbuf, sizeof(tbuf), "HP %u:%02u/%u:%02u",
+    snprintf(tbuf, sizeof(tbuf), "%u:%02u/%u:%02u",
              rem / 60000, (rem / 1000) % 60, tot / 60000, (tot / 1000) % 60);
-    t.fillRect(206, 129, 100, 16, theme::BOX_FILL);   // clear the old time
+    t.fillRect(206, 129, 100, 16, theme::BOX_FILL);   // clear the old time (and ball)
     shadowText(t, tbuf, 304, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TR_DATUM);
+    g_ballX = 304 - t.textWidth(tbuf, 2) - 4 - pokeball::SIZE;
+    drawBall(t);
     hpBarBattle(t, BAR_X, BAR_Y, BAR_W, BAR_H, hpFrac);
     expBar(t, FILL_X, EXP_Y, FILL_W, st.volume / 100.0f);
 }
