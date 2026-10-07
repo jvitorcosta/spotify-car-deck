@@ -5,9 +5,28 @@
 void setUp() {}
 void tearDown() {}
 
+// Classic (Gen 3-era) type colours. The first table was hand-encoded wrong: grass came out
+// rust red (0xA9A5), water grey (0x6B0D), ground pink.
 void test_known_type_returns_type_color() {
-    TEST_ASSERT_EQUAL_UINT16(0x6B0D, theme::typeColor("water")); // GBA blue
-    TEST_ASSERT_EQUAL_UINT16(0xA9A5, theme::typeColor("grass")); // GBA green
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x68, 0x90, 0xF0), theme::typeColor("water"));
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x78, 0xC8, 0x50), theme::typeColor("grass"));
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xF0, 0x80, 0x30), theme::typeColor("fire"));
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xE0, 0xC0, 0x68), theme::typeColor("ground"));
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xF8, 0x58, 0x88), theme::typeColor("psychic"));
+}
+void test_all_18_types_have_distinct_colors() {
+    static const char* T[] = {"normal", "fire", "water", "electric", "grass", "ice", "fighting",
+                              "poison", "ground", "flying", "psychic", "bug", "rock", "ghost",
+                              "dragon", "dark", "steel", "fairy"};
+    for (int i = 0; i < 18; ++i) {
+        TEST_ASSERT_NOT_EQUAL(theme::GBA_NAVY, theme::typeColor(T[i]));
+        for (int j = 0; j < i; ++j)
+            TEST_ASSERT_NOT_EQUAL(theme::typeColor(T[j]), theme::typeColor(T[i]));
+    }
+}
+void test_darken_halves_each_channel() {
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x78, 0x60, 0x40), theme::darken(theme::rgb(0xF0, 0xC0, 0x80)));
+    TEST_ASSERT_EQUAL_HEX16(0x0000, theme::darken(0x0000));
 }
 void test_type_is_case_insensitive() {
     TEST_ASSERT_EQUAL_UINT16(theme::typeColor("water"), theme::typeColor("WATER"));
@@ -76,6 +95,8 @@ int main(int, char**) {
     RUN_TEST(test_hp_color_thresholds);
     RUN_TEST(test_hp_shine_follows_color);
     RUN_TEST(test_known_type_returns_type_color);
+    RUN_TEST(test_all_18_types_have_distinct_colors);
+    RUN_TEST(test_darken_halves_each_channel);
     RUN_TEST(test_type_is_case_insensitive);
     RUN_TEST(test_unknown_type_returns_navy);
     RUN_TEST(test_null_returns_navy);

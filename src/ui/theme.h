@@ -53,6 +53,11 @@ constexpr uint16_t hpShine(float frac) {
     return frac > 0.5f ? HP_GREEN_SHINE : (frac > 0.2f ? HP_YELLOW_SHINE : HP_RED_SHINE);
 }
 
+// Same hue at half brightness (type-badge border).
+constexpr uint16_t darken(uint16_t c) {
+    return (uint16_t)(((c >> 1) & 0x7800) | ((c >> 1) & 0x03E0) | ((c >> 1) & 0x000F));
+}
+
 // Accent color for a PokéAPI type name (lowercase canonical). Null/unknown -> GBA_NAVY.
 uint16_t typeColor(const char* type);
 }

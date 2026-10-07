@@ -3,6 +3,7 @@
 #include "battle.h"
 #include "icons.h"
 #include "pokeball.h"
+#include "typebadge.h"
 #include "status_sprite.h"
 #include "labels.h"
 #include "textdraw.h"
@@ -223,12 +224,24 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
 
     // status box (player-style, slanted left end): name + No., HP time, walker, bars
     battleBox(t, STAT_X, STAT_Y, STAT_W, STAT_H, Tab::Left);
+    // name, Gen-3 type badge, then "No.0025" only if it still ends before the time area
+    // (x >= 206 is cleared and redrawn every 250 ms by drawProgressRegion).
     int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 24, 129, 2, theme::TEXT,
-                       theme::TEXT_SHADOW, TL_DATUM, 130, true);
+                       theme::TEXT_SHADOW, TL_DATUM, 96, true);
+    int x = 24 + nmW + 6;
+    char lbl[12];
+    if (typebadge::label(st.pokeType, lbl, sizeof(lbl))) {
+        uint16_t c = theme::typeColor(st.pokeType), edge = theme::darken(c);
+        t.fillRoundRect(x, 131, typebadge::W, typebadge::H, 3, c);
+        t.drawRoundRect(x, 131, typebadge::W, typebadge::H, 3, edge);
+        shadowText(t, lbl, x + typebadge::W / 2, 131 + typebadge::H / 2, 1, TFT_WHITE, edge, MC_DATUM);
+        x += typebadge::W + 4;
+    }
     if (st.pokedexNum > 0) {
         char no[12];
         snprintf(no, sizeof(no), "No.%04d", st.pokedexNum);
-        shadowText(t, no, 24 + nmW + 6, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+        if (x + (int)strlen(no) * typebadge::CHAR_W <= 204)
+            shadowText(t, no, x, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
     }
     drawProgressRegion(t, st);
 
