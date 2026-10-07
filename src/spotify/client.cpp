@@ -40,6 +40,7 @@ static void onPlaying(CurrentlyPlaying cp) {
 void begin() {
     client.setInsecure();
     client.setHandshakeTimeout(8);   // default 120 s froze polls on a half-dead hotspot
+    client.setTimeout(8);            // seconds: TCP connect/read (default 30 s)
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;   // PC-obtained token from config.h
     // NOTE: SpotifyArduino's ctor calls setRefreshToken(), which reads its _refreshToken
@@ -65,7 +66,9 @@ static bool ensureAccessToken() {
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;
     if (rt.isEmpty()) return false;
     WiFiClientSecure c; c.setInsecure();
+    c.setHandshakeTimeout(8);   // seconds; defaults (30 s connect, 120 s handshake) stalled polls
     HTTPClient https;
+    https.setTimeout(8000);
     if (!https.begin(c, "https://accounts.spotify.com/api/token")) return false;
     https.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "grant_type=refresh_token&refresh_token=" + rt +
@@ -99,7 +102,9 @@ static void resolveContext(const char* uri, char* out, size_t n) {
         strncpy(out, type.c_str(), n - 1); out[n - 1] = 0; return;
     }
     WiFiClientSecure c; c.setInsecure();
+    c.setHandshakeTimeout(8);   // seconds; defaults (30 s connect, 120 s handshake) stalled polls
     HTTPClient https;
+    https.setTimeout(8000);
     String url = "https://api.spotify.com/v1/" + String(endpoint) + "/" + id + "?fields=name";
     if (!https.begin(c, url)) { strncpy(out, type.c_str(), n - 1); out[n - 1] = 0; return; }
     https.addHeader("Authorization", g_accessToken);
