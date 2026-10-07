@@ -34,11 +34,12 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
 - If WiFi only comes up after boot, the Spotify setup portal is skipped. Only matters for a
   first-ever setup with no saved login; a reboot with WiFi up fixes it.
 - `g_accessToken` is an Arduino `String`, reassigned once an hour: negligible heap churn.
+- Backlight stays at full brightness (decided 2026-10-07): no auto-dim from the CYD light
+  sensor (GPIO 34), even though it was suggested for night glare.
 
 ## Ideas
 
 - Car power: brownout behaviour on noisy USB during engine start (`[boot] reset reason`
   now says "brownout" if it happens).
-- Backlight auto-dim at night.
 - Touch controls (play/pause/skip).
 - Korean / emoji / Cyrillic lyrics (render blank today; spec non-goal).
