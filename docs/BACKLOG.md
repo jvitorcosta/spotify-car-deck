@@ -39,6 +39,19 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
 
 ## Ideas
 
+- **Musixmatch as a second lyrics source** (parked 2026-10-07). Official API free plan: API
+  key, ~2k calls/day, only a ~30% untimed preview (full/synced lyrics are paid, licensed).
+  Unofficial desktop endpoint (`apic-desktop.musixmatch.com`, `macro.subtitles.get` +
+  usertoken): full synced lyrics, but bypasses their API auth (against Musixmatch's terms),
+  can be blocked any time, token tied to an account; large JSON responses would need a
+  second stream parser and another TLS host on a memory-tight board.
+- **Bigger status panel when a song has no lyrics** (parked 2026-10-07; current layout kept).
+  Instead of the dialogue box, the status panel grows into the bottom of the screen. Two
+  mocked-up variants: (A) everything scales up: name/badge/time in the large font, Poke Ball
+  and walker at 2x (pixel doubling), 14-16 px HP bar; (B) name row unchanged, a large
+  time-remaining readout next to a 2x walker, thicker HP bar. Needs the lyrics pipeline to
+  report a final "no lyrics" state (planned with the lyrics-reliability work).
+
 - Car power: brownout behaviour on noisy USB during engine start (`[boot] reset reason`
   now says "brownout" if it happens).
 - Touch controls (play/pause/skip).
