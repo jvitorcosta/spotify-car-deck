@@ -5,6 +5,7 @@
 #include "fetch.h"
 #include "../util/animdata.h"
 #include "../util/walkanim.h"
+#include "../util/dexset.h"
 
 namespace walk {
 
@@ -67,7 +68,8 @@ static inline bool opaqueAt(int x) {
 
 static int regionDraw(PNGDRAW* d) {
     int ry = d->y - s_rowY0;
-    if (ry < 0 || ry >= s_rowH) return 1;
+    if (ry < 0) return 1;
+    if (ry >= s_rowH) return 0;          // past the band: stop (decode returns PNG_QUIT_EARLY)
     PNG& png = img::decoder();
     memset(s_bits, 0xff, sizeof(s_bits));
     png.getLineAsRGB565(d, s_line, PNG_RGB565_BIG_ENDIAN, 0x0000);
@@ -110,7 +112,8 @@ static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW
             }
             s_frameW = frameW > 0 ? frameW : w;
             s_rowH = rowH > 0 ? rowH : h;
-            if (h < s_rowY0 + s_rowH) { png.close(); return Res::Corrupt; }
+            // Too few direction rows: a valid sheet this code can't use (not corruption).
+            if (h < s_rowY0 + s_rowH) { png.close(); return Res::Unsupported; }
             s_frames = w / s_frameW;
             if (maxFrames < s_frames) s_frames = maxFrames;
             if (s_frames < 1) { png.close(); return Res::Corrupt; }
@@ -119,7 +122,7 @@ static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW
         }
         int rc = png.decode(nullptr, 0);
         png.close();
-        if (rc != PNG_SUCCESS) return Res::Corrupt;
+        if (rc != PNG_SUCCESS && rc != PNG_QUIT_EARLY) return Res::Corrupt;
         if (s_pass == 1) {
             if (walkanim::isEmpty(s_box)) return Res::Corrupt;
             s_fit = walkanim::fitBand(s_box.x1 - s_box.x0 + 1, s_box.y1 - s_box.y0 + 1, BAND_H, MAX_W);
@@ -146,11 +149,20 @@ static bool getCached(const String& path, const String& url, size_t* n, int* cod
     return true;
 }
 
+// Pokemon whose PMD sheet can never work this boot (missing, no Walk anim, too big,
+// unsupported). Without it every pick of one re-downloaded ~25 KB before falling back.
+// Network failures are not recorded: those may work next time.
+static dexset::Set s_noPmd;
+
 bool loadPmd(int dex) {
     s_slot = staged();
     g_info[s_slot].ready = false;
     g_dex[s_slot] = 0;
     if (dex < 1 || !g_pool[s_slot] || !g_scratch) return false;
+    if (s_noPmd.has(dex)) {
+        Serial.printf("[walk] fallback (#%d has no usable PMD sheet)\n", dex);
+        return false;
+    }
     char base[96];
     snprintf(base, sizeof(base),
              "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/%04d/", dex);
@@ -159,16 +171,19 @@ bool loadPmd(int dex) {
 
     size_t n = 0; int code = 0;
     if (!getCached(xmlPath, String(base) + "AnimData.xml", &n, &code, true)) {
+        if (code == 404) s_noPmd.add(dex);
         Serial.printf("[walk] fallback (xml http %d)\n", code);
         return false;
     }
     animdata::WalkAnim a = animdata::parseWalk((const char*)g_scratch);   // scratch is free after this
     if (!a.ok) {
         cache::removePath(xmlPath);
+        s_noPmd.add(dex);
         Serial.println("[walk] fallback (no Walk anim)");
         return false;
     }
     if (!getCached(pngPath, String(base) + "Walk-Anim.png", &n, &code)) {
+        if (code == 404 || code == 413) s_noPmd.add(dex);
         Serial.printf("[walk] fallback (png http %d or > %d B)\n", code, SCRATCH);
         return false;
     }
@@ -178,6 +193,8 @@ bool loadPmd(int dex) {
         if (r == Res::Corrupt) {   // corrupt: drop the cache so the next play re-downloads
             cache::removePath(xmlPath);
             cache::removePath(pngPath);
+        } else {
+            s_noPmd.add(dex);      // unsupported: the same sheet will fail the same way
         }
         Serial.printf("[walk] fallback (sheet %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");
         return false;

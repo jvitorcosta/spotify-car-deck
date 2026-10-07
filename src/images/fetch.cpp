@@ -29,6 +29,7 @@ bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int
     }
     if (len <= 0 || (size_t)len + 1 > cap) {
         Serial.printf("[fetch] bad length %d (cap %u)\n", len, (unsigned)cap);
+        if (httpCode && len > 0) *httpCode = 413;   // too big for the buffer: retrying won't help
         https.end();
         return false;
     }
