@@ -49,7 +49,11 @@ bool fetchInto(const AppState& st, lyricbuf::Lyrics& out) {
     https.end();
     if (err) { Serial.printf("[lyrics] json %s\n", err.c_str()); return false; }
     int n = lyricbuf::parse(doc["syncedLyrics"] | "", out);
-    Serial.printf("[lyrics] synced lines=%d\n", n);
+    const char* synced = doc["syncedLyrics"] | "";
+    size_t srcLines = 0;
+    for (const char* p = synced; *p; ++p) srcLines += (*p == '\n');
+    Serial.printf("[lyrics] synced lines=%d%s\n", n,
+                  (size_t)n + 1 < srcLines ? " (arena full: tail dropped)" : "");
     return n > 0;
 }
 

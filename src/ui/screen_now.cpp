@@ -7,7 +7,6 @@
 #include "textdraw.h"
 #include "theme.h"
 #include "../util/text.h"
-#include "../util/textfit.h"
 #include "../util/interp.h"
 #include "../util/walkrect.h"
 #include "../util/walkanim.h"
@@ -116,34 +115,36 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
     prev = p.next;
 }
 
-static int tftWidth2(const std::string& s, void* ctx) {
-    return ((TFT_eSPI*)ctx)->textWidth(s.c_str(), 2);
-}
-
 static std::string g_lastLyric = "\x01";   // never a real line -> forces a draw
 void resetLyricArea() { g_lastLyric = "\x01"; }
 
 void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
-    char folded[160];
-    txt::Mark marks[160];
-    size_t n = txt::foldMarks(currentLine ? currentLine : "", folded, marks, sizeof(folded));
-    if (g_lastLyric == folded) return;
-    g_lastLyric = folded;
+    const char* line = currentLine ? currentLine : "";
+    if (g_lastLyric == line) return;
+    g_lastLyric = line;
 
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
     t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
+    // static: keep the UI loop stack small; +3 slots so line b's "..." can be written in place
+    static glyphrun::Item items[163];
+    size_t n = glyphrun::decode(line, items, 160, asciiWidth2, wideWidth, &t);
     if (!n) return;
     drawIcon(t, icons::Icon::Note, ix + 2, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
     drawIcon(t, icons::Icon::Note, ix + iw - 14, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
     const int textW = iw - 2 * 18;
-    textfit::TwoLines l = textfit::wrapTwo(folded, textW, tftWidth2, &t);
+    glyphrun::Wrap w = glyphrun::wrapTwo(items, n, textW, 3 * asciiWidth2('.', &t));
     int cx = DLG_X + DLG_W / 2;
-    if (l.b.empty()) {
-        drawFolded(t, l.a.c_str(), marks, n, cx, DLG_Y + 20, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+    if (w.bStart >= w.bEnd) {
+        drawRun(t, items, w.aEnd, cx, DLG_Y + 20, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
     } else {
-        drawFolded(t, l.a.c_str(), marks, l.a.size(), cx, DLG_Y + 12, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
-        drawFolded(t, l.b.c_str(), marks + l.bStart, l.bKeep, cx, DLG_Y + 29, 2, theme::TEXT,
-                   theme::DLG_SHADOW, MC_DATUM);
+        drawRun(t, items, w.aEnd, cx, DLG_Y + 12, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        size_t bn = w.bEnd - w.bStart;
+        if (w.bEllipsis)   // items past bEnd are not drawn, so "..." can overwrite them
+            for (int k = 0; k < 3; ++k)
+                items[w.bEnd + k] = {glyphrun::Kind::Ascii, '.', txt::Mark::None, '.',
+                                     (uint8_t)asciiWidth2('.', &t)};
+        if (w.bEllipsis) bn += 3;
+        drawRun(t, items + w.bStart, bn, cx, DLG_Y + 29, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
     }
 }
 
