@@ -224,19 +224,21 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
 
     // status box (player-style, slanted left end): name + No., HP time, walker, bars
     battleBox(t, STAT_X, STAT_Y, STAT_W, STAT_H, Tab::Left);
-    // name, Gen-3 type badge, then "No.0025" only if it still ends before the time area
+    // Gen-3 type badge first (fixed spot: readable at a glance, doesn't move with the name's
+    // length), then the name, then "No.0025" only if it still ends before the time area
     // (x >= 206 is cleared and redrawn every 250 ms by drawProgressRegion).
-    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 24, 129, 2, theme::TEXT,
-                       theme::TEXT_SHADOW, TL_DATUM, 96, true);
-    int x = 24 + nmW + 6;
+    int x = 24;
     char lbl[12];
     if (typebadge::label(st.pokeType, lbl, sizeof(lbl))) {
         uint16_t c = theme::typeColor(st.pokeType), edge = theme::darken(c);
         t.fillRoundRect(x, 131, typebadge::W, typebadge::H, 3, c);
         t.drawRoundRect(x, 131, typebadge::W, typebadge::H, 3, edge);
         shadowText(t, lbl, x + typebadge::W / 2, 131 + typebadge::H / 2, 1, TFT_WHITE, edge, MC_DATUM);
-        x += typebadge::W + 4;
+        x += typebadge::W + 6;
     }
+    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", x, 129, 2, theme::TEXT,
+                       theme::TEXT_SHADOW, TL_DATUM, 96, true);
+    x += nmW + 6;
     if (st.pokedexNum > 0) {
         char no[12];
         snprintf(no, sizeof(no), "No.%04d", st.pokedexNum);
