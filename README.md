@@ -21,7 +21,11 @@ hotspot.
 - Host unit tests (Unity, compiled with g++ because `pio test -e native` is broken here):
   `.devtools\ntest.ps1 test\<suite>\<suite>.cpp <module.cpp>` — suites: theme, icon_map,
   animdata, walkanim, walkrect, textfit, walk, interp, lrc, text, dex, netplan.
-- Regenerate the bundled Pokédex: `python tools/gen_dex.py`.
+- Regenerate the bundled Pokédex: `python tools/gen_dex.py`; the status-screen sprite:
+  `python tools/gen_status_sprite.py [dex]`.
+- Measure a session: `python tools/capture_serial.py COM11 600 session.log`, then
+  `python tools/analyze_session.py session.log` (step timings, per-track arrival times,
+  byte RAM, failed allocations, TLS errors, restarts).
 
 ## Architecture
 
@@ -86,10 +90,41 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
    stack 16 → 10 KB (measured high-water mark 5.3 KB); boot heap went from free 86 KB /
    largest 41 KB to free 143 KB / largest 65 KB. A single failed poll (`HTTP -1`) also flashed
    "No signal", now shown only after 3 consecutive failures (`netplan::LinkGate`).
-8. **Open:** once, every TLS handshake failed with `-32512` (mbedTLS SSL_ALLOC_FAILED) after
-   a song's album art arrived and never recovered; holding the compressed JPEG drops the
-   largest block from 65 KB to 41 KB. Being investigated with a 10-minute logged session
-   (`[net]` and `[heap]` lines on the serial port).
+8. **The freeze (resolved in 9).** A 10-minute logged session showed the deck stuck for
+   **500 of 600 s**: right after a song's album art arrived, every TLS handshake failed with
+   `-32512` (mbedTLS SSL_ALLOC_FAILED) and never recovered. A failed-allocation hook showed
+   why: the 16 717-byte mbedTLS buffer found at most 9.7–16.4 KB contiguous, and the WiFi
+   driver couldn't even get 1 512-byte packet buffers (230 times). The "~100 KB free" we had
+   been logging (`ESP.getFreeHeap`) included 32-bit-only IRAM that byte buffers can't use —
+   **byte-addressable RAM was exhausted**, and nothing freed memory except a track change,
+   which itself needed a successful poll.
+9. **Deterministic memory + resilience.**
+   - Measure the right thing: `core/mem` reports `MALLOC_CAP_8BIT | INTERNAL`; failed
+     allocations are counted (printing them from the WiFi driver slowed it down).
+   - Album art streamed over **plain HTTP** (the CDN serves it) straight into the JPEG decoder
+     and into one fixed **92×92 bitmap** allocated at boot — no held JPEG, no decode buffer,
+     no TLS. (A since-fixed bug left the decoder's swap flag uninitialised: scrambled colours.)
+   - Walker downloads use one fixed **12 KB scratch** buffer; the fallback sprite decodes in
+     two passes without a full-size copy; PNGs PNGdec can't buffer are skipped.
+   - Lyrics: synced field only, streamed, parsed into a fixed **~5.6 KB arena**.
+   - Network steps wait until the largest free block fits TLS; **self-healing**: 2 failed
+     polls pause optional downloads, 180 s without a good poll (WiFi up) restarts the board.
+   - Late hotspot retried in the background, 8 s TLS timeouts, "No signal" once the last good
+     poll is 20 s old, track changes keyed on the Spotify track URI.
+
+   | | Before (10-min session) | After (270 s, 3 tracks) |
+   |---|---|---|
+   | Time frozen | 500 of 600 s | 0 |
+   | Failed allocations | 340 TLS + 230 WiFi | 0 |
+   | Album art | 2.5–3.3 s (TLS) | 0.9–1.2 s (plain HTTP) |
+   | Lyrics | 3.7 s | 2.4–2.7 s |
+   | Lowest byte RAM free / largest block | 2 KB / 0.7 KB | 32 KB / 20.5 KB (during TLS) |
+   | After a skip | old song ~19 s, then stuck | title at next poll; art 1.2 s, lyrics 3.9 s, walker instant if prefetched |
+
+   Measured with `tools/capture_serial.py` + `tools/analyze_session.py`.
+10. **UI additions:** bundled Pikachu on the status screens (`tools/gen_status_sprite.py`),
+    "PAUSED" in the top strip, Portuguese/Latin-1 accents drawn as pixel marks over the ASCII
+    font (same widths, so fitting and wrapping are unchanged).
 
 ## Credits
 
