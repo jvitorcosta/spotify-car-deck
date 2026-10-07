@@ -1,7 +1,7 @@
 #include "lrclib.h"
+#include "../util/lrcstream.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
 #include <cctype>
 
 namespace lyricsvc {
@@ -20,7 +20,7 @@ static String urlEncode(const char* s) {
 }
 
 bool fetchInto(const AppState& st, lyricbuf::Lyrics& out) {
-    out.n = 0;
+    lyricbuf::reset(out);
     if (!st.trackName[0]) return false;
     String url = "https://lrclib.net/api/get?track_name=" + urlEncode(st.trackName) +
                  "&artist_name=" + urlEncode(st.artist) +
@@ -31,7 +31,7 @@ bool fetchInto(const AppState& st, lyricbuf::Lyrics& out) {
     client.setInsecure();
     client.setHandshakeTimeout(8);
     HTTPClient https;
-    https.useHTTP10(true);          // plain body: parse straight from the stream
+    https.useHTTP10(true);          // plain (non-chunked) body: scan straight from the stream
     https.setTimeout(8000);
     if (!https.begin(client, url)) return false;
     https.addHeader("User-Agent", "PokeDeck/1.0 (ESP32)");
@@ -41,19 +41,27 @@ bool fetchInto(const AppState& st, lyricbuf::Lyrics& out) {
         https.end();
         return false;
     }
-    JsonDocument filter;
-    filter["syncedLyrics"] = true;   // plain lyrics can't be timed; don't even buffer them
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, https.getStream(),
-                                               DeserializationOption::Filter(filter));
+    // Stream the syncedLyrics string straight into the arena (no JSON document: ArduinoJson
+    // grew it by doubling, up to 16 KB contiguous while TLS was open). Plain lyrics are skipped.
+    lrcstream::Extractor ex(out);
+    WiFiClient* s = https.getStreamPtr();
+    uint8_t chunk[128];
+    uint32_t last = millis();
+    while (!ex.done() && (https.connected() || s->available())) {
+        int a = s->available();
+        if (a <= 0) {
+            if (millis() - last > 8000) break;   // stalled
+            delay(1);
+            continue;
+        }
+        int r = s->read(chunk, a < (int)sizeof(chunk) ? a : (int)sizeof(chunk));
+        for (int i = 0; i < r && !ex.done(); ++i) ex.feed((char)chunk[i]);
+        last = millis();
+    }
     https.end();
-    if (err) { Serial.printf("[lyrics] json %s\n", err.c_str()); return false; }
-    int n = lyricbuf::parse(doc["syncedLyrics"] | "", out);
-    const char* synced = doc["syncedLyrics"] | "";
-    size_t srcLines = 0;
-    for (const char* p = synced; *p; ++p) srcLines += (*p == '\n');
-    Serial.printf("[lyrics] synced lines=%d%s\n", n,
-                  (size_t)n + 1 < srcLines ? " (arena full: tail dropped)" : "");
+    int n = ex.finish();
+    Serial.printf("[lyrics] synced lines=%d%s%s\n", n, ex.found() ? "" : " (none)",
+                  ex.truncated() ? " (arena full: tail dropped)" : "");
     return n > 0;
 }
 
