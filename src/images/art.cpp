@@ -79,7 +79,11 @@ bool fetch(const char* url) {
     }
     s_in = http.getStreamPtr();
     s_deadline = millis() + 10000;
-    JDEC jd;
+    // This TJpg_Decoder build adds a `swap` field that jd_prepare() preserves; left
+    // uninitialised it was random stack garbage, so some covers came out byte-swapped twice
+    // (scrambled/"inverted" colours). Native output here; jdOut does the one swap.
+    JDEC jd = {};
+    jd.swap = 0;
     JRESULT rc = jd_prepare(&jd, jdIn, g_work, TJPGD_WORKSPACE_SIZE, nullptr);
     if (rc == JDR_OK) {
         int s = artmap::pickScale(jd.width, jd.height, W);
