@@ -11,6 +11,7 @@
 #include "core/mem.h"
 #include "ui/theme.h"
 #include "ui/screen_now.h"
+#include "ui/cjkdata.h"
 #include "util/interp.h"
 #include "util/netplan.h"
 #include "images/art.h"
@@ -39,6 +40,12 @@ void setup() {
     shared::begin();
     walk::begin();            // allocate both walker slots before the heap fragments
     art::begin();             // fixed album-art bitmap (before WiFi)
+    {   // CJK font sanity check (glyphs stay in flash)
+        int w = 0;
+        bool ok = ui::cjk().glyph(0x3042, &w) != nullptr;   // HIRAGANA LETTER A
+        Serial.printf("[cjk] ranges=%d glyph(U+3042)=%s w=%d\n", ui::cjk().rangeCount(),
+                      ok ? "ok" : "missing", w);
+    }
     cache::begin();
     tft.init(); tft.invertDisplay(true); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
