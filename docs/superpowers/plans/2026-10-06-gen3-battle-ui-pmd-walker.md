@@ -5890,3 +5890,821 @@ must stay green).
 git add src/util/text.h src/util/text.cpp test/test_text/test_text.cpp src/ui/accents.h src/ui/accents.cpp test/test_accents/test_accents.cpp src/util/textfit.h src/util/textfit.cpp test/test_textfit/test_textfit.cpp src/ui/textdraw.h src/ui/textdraw.cpp src/ui/screen_now.cpp
 git commit -m "feat(ui): draw Portuguese/Latin-1 accents over the ASCII font"
 ```
+
+---
+
+## Part 4 — Japanese / Chinese text (bundled Unifont CJK)
+
+**Spec:** `docs/superpowers/specs/2026-10-07-cjk-text-design.md`.
+Execution order: 24 → 25 → 26 → 27. Commits: Conventional Commits.
+
+Additional Global Constraints for Part 4:
+- Glyph data lives only in flash (`board_build.embed_files`); no glyph copies or tables in RAM.
+- Text drawing keeps the Part 3 rules: transparent text with a 1-px shadow, font 2 for ASCII.
+
+Review Focus for Part 4:
+1. **Lines with no spaces** (CJK) — must wrap between characters, never overflow the box.
+   Covered: `test_glyphrun` wrap cases.
+2. **Mixed ASCII + accents + CJK** in one title/line — widths exact, accents on the right letters.
+   Covered: `test_glyphrun` decode/width cases + device step.
+3. **Unsupported characters** (emoji, Korean, 4-byte UTF-8) — dropped, never garbage.
+   Covered: `test_glyphrun` decode case.
+4. **Corrupt or missing font blob** — text still draws (CJK simply absent). Covered:
+   `test_cjkfont` header validation + `cjk()` returning an empty font on failure.
+5. **Lyrics arena with CJK (3 B/char)** — fits typical songs; logs when truncated. Covered:
+   Task 26 log + Task 27 session.
+
+---
+
+### Task 24: CJK font blob + reader
+
+**Files:**
+- Create: `tools/gen_cjk_font.py`, `data/cjk16.bin` (generated, committed)
+- Create: `src/ui/cjkfont.h`, `src/ui/cjkfont.cpp`, `test/test_cjkfont/test_cjkfont.cpp`
+- Create: `src/ui/cjkdata.h`, `src/ui/cjkdata.cpp` (device: embedded blob → `Font`)
+- Modify: `platformio.ini` (`board_build.embed_files`), `src/main.cpp` (boot log)
+
+**Interfaces:**
+- Produces: `cjkfont::Font` with `bool open(const uint8_t* blob, size_t len)`,
+  `const uint8_t* glyph(uint32_t cp, int* width) const` (16 rows; width 8 → 1 B/row,
+  16 → 2 B/row, MSB = leftmost), `int rangeCount() const`; `const cjkfont::Font& ui::cjk()`.
+
+- [ ] **Step 1: Create `tools/gen_cjk_font.py`**
+
+```python
+"""Generate data/cjk16.bin: GNU Unifont glyphs for Japanese/Chinese text, embedded in flash.
+
+Why: the built-in fonts are ASCII-only, so kana/hanzi lyric lines rendered empty. Unifont is
+16 px tall (same as font 2); kana + CJK ideographs are ~686 KB of flash and 0 RAM.
+Run: python tools/gen_cjk_font.py [path-or-url to unifont_all-*.hex.gz]
+Format (little-endian): "UFNT", u16 nRanges, nRanges x {u32 first, u32 last, u8 width,
+u32 offset}, then bitmaps (16 rows; 1 B/row for width 8, 2 B/row for width 16).
+"""
+import gzip
+import io
+import os
+import struct
+import sys
+import urllib.request
+
+SRC = sys.argv[1] if len(sys.argv) > 1 else \
+    "https://ftpmirror.gnu.org/unifont/unifont-16.0.04/unifont_all-16.0.04.hex.gz"
+OUT = os.path.join(os.path.dirname(__file__), "..", "data", "cjk16.bin")
+WANT = [(0x3000, 0x303F), (0x3040, 0x309F), (0x30A0, 0x30FF), (0x31F0, 0x31FF),
+        (0x4E00, 0x9FFF), (0xFF00, 0xFFEF)]
+
+raw = urllib.request.urlopen(SRC).read() if SRC.startswith("http") else open(SRC, "rb").read()
+glyphs = {}
+for line in io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(raw)), encoding="ascii"):
+    cp, bm = line.strip().split(":")
+    c = int(cp, 16)
+    if any(a <= c <= b for a, b in WANT):
+        glyphs[c] = bytes.fromhex(bm)          # 16 B (8 px wide) or 32 B (16 px wide)
+
+# Split each wanted range into runs of equal width (missing codepoints: blank, full width).
+runs = []
+for a, b in WANT:
+    start = a
+    width = 8 if len(glyphs.get(a, b"\0" * 32)) == 16 else 16
+    for c in range(a, b + 2):
+        w = None if c > b else (8 if len(glyphs.get(c, b"\0" * 32)) == 16 else 16)
+        if w != width:
+            runs.append((start, c - 1, width))
+            start, width = c, w
+header = 4 + 2 + 13 * len(runs)
+blob, ranges = bytearray(), []
+for first, last, width in runs:
+    per = 16 if width == 8 else 32
+    ranges.append(struct.pack("<IIBI", first, last, width, header + len(blob)))
+    for c in range(first, last + 1):
+        g = glyphs.get(c, b"\0" * per)
+        blob += g if len(g) == per else b"\0" * per
+os.makedirs(os.path.dirname(OUT), exist_ok=True)
+with open(OUT, "wb") as f:
+    f.write(b"UFNT" + struct.pack("<H", len(runs)) + b"".join(ranges) + bytes(blob))
+print("wrote %s: %d ranges, %d glyphs, %d bytes" % (OUT, len(runs), len(glyphs), header + len(blob)))
+```
+
+- [ ] **Step 2: Generate**
+
+Run: `python tools/gen_cjk_font.py` (or pass a local `unifont_all-16.0.04.hex.gz`).
+Expected: `wrote ...data/cjk16.bin: N ranges, 21504 glyphs, ~700000 bytes` (N ≈ 6–12).
+
+- [ ] **Step 3: Failing test `test/test_cjkfont/test_cjkfont.cpp`**
+
+```cpp
+#include <unity.h>
+#include <cstring>
+#include <vector>
+#include "../../src/ui/cjkfont.h"
+
+void setUp() {}
+void tearDown() {}
+
+// Synthetic blob: [0x3042..0x3043] 16 px, [0xFF71..0xFF71] 8 px.
+static std::vector<uint8_t> makeBlob() {
+    std::vector<uint8_t> b = {'U', 'F', 'N', 'T', 2, 0};
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back((v >> (8 * i)) & 0xFF); };
+    const uint32_t hdr = 6 + 13 * 2;
+    u32(0x3042); u32(0x3043); b.push_back(16); u32(hdr);
+    u32(0xFF71); u32(0xFF71); b.push_back(8);  u32(hdr + 64);
+    for (int i = 0; i < 64; ++i) b.push_back((uint8_t)(0xA0 + i));   // two 16-px glyphs
+    for (int i = 0; i < 16; ++i) b.push_back((uint8_t)(0x10 + i));   // one 8-px glyph
+    return b;
+}
+
+void test_open_and_lookup() {
+    std::vector<uint8_t> b = makeBlob();
+    cjkfont::Font f;
+    TEST_ASSERT_TRUE(f.open(b.data(), b.size()));
+    TEST_ASSERT_EQUAL_INT(2, f.rangeCount());
+    int w = 0;
+    const uint8_t* g = f.glyph(0x3042, &w);
+    TEST_ASSERT_NOT_NULL(g);
+    TEST_ASSERT_EQUAL_INT(16, w);
+    TEST_ASSERT_EQUAL_HEX8(0xA0, g[0]);
+    g = f.glyph(0x3043, &w);
+    TEST_ASSERT_EQUAL_HEX8(0xA0 + 32, g[0]);
+    g = f.glyph(0xFF71, &w);
+    TEST_ASSERT_EQUAL_INT(8, w);
+    TEST_ASSERT_EQUAL_HEX8(0x10, g[0]);
+}
+void test_missing_codepoints() {
+    std::vector<uint8_t> b = makeBlob();
+    cjkfont::Font f;
+    f.open(b.data(), b.size());
+    int w = 99;
+    TEST_ASSERT_NULL(f.glyph(0x3044, &w));
+    TEST_ASSERT_NULL(f.glyph(0x41, &w));
+    TEST_ASSERT_NULL(f.glyph(0x1F600, &w));
+}
+void test_rejects_bad_blobs() {
+    std::vector<uint8_t> b = makeBlob();
+    cjkfont::Font f;
+    std::vector<uint8_t> bad = b; bad[0] = 'X';
+    TEST_ASSERT_FALSE(f.open(bad.data(), bad.size()));                 // magic
+    TEST_ASSERT_FALSE(f.open(b.data(), b.size() - 1));                 // truncated bitmaps
+    TEST_ASSERT_FALSE(f.open(b.data(), 10));                           // truncated header
+    std::vector<uint8_t> unsorted = b;
+    unsorted[6] = 0x72; unsorted[7] = 0xFF; unsorted[10] = 0x72; unsorted[11] = 0xFF;   // r0 = FF72
+    TEST_ASSERT_FALSE(f.open(unsorted.data(), unsorted.size()));
+    TEST_ASSERT_FALSE(f.open(nullptr, 0));
+    int w;
+    TEST_ASSERT_NULL(f.glyph(0x3042, &w));                             // closed font: no glyphs
+}
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_open_and_lookup);
+    RUN_TEST(test_missing_codepoints);
+    RUN_TEST(test_rejects_bad_blobs);
+    return UNITY_END();
+}
+```
+
+- [ ] **Step 4: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_cjkfont\test_cjkfont.cpp`
+Expected: `COMPILE FAILED` (`cjkfont.h` missing).
+
+- [ ] **Step 5: Create `src/ui/cjkfont.h` / `cjkfont.cpp`**
+
+```cpp
+// cjkfont.h
+#pragma once
+#include <cstddef>
+#include <cstdint>
+// Reader for the embedded Unifont CJK blob (tools/gen_cjk_font.py). PURE, host-tested.
+// The blob stays in flash; lookups are a binary search over its few ranges + arithmetic.
+namespace cjkfont {
+class Font {
+public:
+    // Validates the "UFNT" header, range order and bounds. False leaves the font empty.
+    bool open(const uint8_t* blob, size_t len);
+    // 16-row bitmap for cp (width 8: 1 B/row, width 16: 2 B/row, MSB = leftmost) or nullptr.
+    const uint8_t* glyph(uint32_t cp, int* width) const;
+    int rangeCount() const { return n_; }
+private:
+    struct Range { uint32_t first, last; uint8_t width; uint32_t offset; };
+    Range range(int i) const;
+    const uint8_t* blob_ = nullptr;
+    size_t len_ = 0;
+    int n_ = 0;
+};
+}
+```
+
+```cpp
+// cjkfont.cpp
+#include "cjkfont.h"
+#include <cstring>
+
+namespace cjkfont {
+
+static uint32_t rd32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+Font::Range Font::range(int i) const {
+    const uint8_t* p = blob_ + 6 + 13 * i;
+    return {rd32(p), rd32(p + 4), p[8], rd32(p + 9)};
+}
+
+bool Font::open(const uint8_t* blob, size_t len) {
+    blob_ = nullptr; len_ = 0; n_ = 0;
+    if (!blob || len < 6 || memcmp(blob, "UFNT", 4) != 0) return false;
+    int n = blob[4] | (blob[5] << 8);
+    if (len < (size_t)(6 + 13 * n)) return false;
+    blob_ = blob; len_ = len; n_ = n;
+    uint32_t prevLast = 0;
+    for (int i = 0; i < n; ++i) {
+        Range r = range(i);
+        size_t per = r.width == 8 ? 16 : 32;
+        bool ok = (r.width == 8 || r.width == 16) && r.first <= r.last &&
+                  (i == 0 || r.first > prevLast) &&
+                  (size_t)r.offset + (size_t)(r.last - r.first + 1) * per <= len;
+        if (!ok) { blob_ = nullptr; len_ = 0; n_ = 0; return false; }
+        prevLast = r.last;
+    }
+    return true;
+}
+
+const uint8_t* Font::glyph(uint32_t cp, int* width) const {
+    int lo = 0, hi = n_ - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        Range r = range(mid);
+        if (cp < r.first) hi = mid - 1;
+        else if (cp > r.last) lo = mid + 1;
+        else {
+            if (width) *width = r.width;
+            return blob_ + r.offset + (cp - r.first) * (r.width == 8 ? 16 : 32);
+        }
+    }
+    return nullptr;
+}
+
+}
+```
+
+- [ ] **Step 6: Run to verify it passes**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_cjkfont\test_cjkfont.cpp src\ui\cjkfont.cpp`
+Expected: `3 Tests 0 Failures 0 Ignored` / `OK`.
+
+- [ ] **Step 7: Embed the blob and expose it (`src/ui/cjkdata.*`, `platformio.ini`)**
+
+In `platformio.ini` under `[env:esp32dev]` add `board_build.embed_files = data/cjk16.bin`.
+
+```cpp
+// cjkdata.h
+#pragma once
+#include "cjkfont.h"
+namespace ui {
+// The Unifont CJK font embedded in flash (data/cjk16.bin). Empty font if the blob is invalid.
+const cjkfont::Font& cjk();
+}
+```
+
+```cpp
+// cjkdata.cpp
+#include "cjkdata.h"
+#include <Arduino.h>
+
+extern const uint8_t _binary_data_cjk16_bin_start[] asm("_binary_data_cjk16_bin_start");
+extern const uint8_t _binary_data_cjk16_bin_end[] asm("_binary_data_cjk16_bin_end");
+
+namespace ui {
+
+const cjkfont::Font& cjk() {
+    static cjkfont::Font font;
+    static bool opened = false;
+    if (!opened) {
+        opened = true;
+        size_t len = (size_t)(_binary_data_cjk16_bin_end - _binary_data_cjk16_bin_start);
+        if (!font.open(_binary_data_cjk16_bin_start, len))
+            Serial.printf("[cjk] font blob invalid (%u bytes)\n", (unsigned)len);
+    }
+    return font;
+}
+
+}
+```
+
+In `src/main.cpp` `setup()`, after `art::begin();` add:
+
+```cpp
+    {   // CJK font sanity check (glyphs stay in flash)
+        int w = 0;
+        bool ok = ui::cjk().glyph(0x3042, &w) != nullptr;   // HIRAGANA LETTER A
+        Serial.printf("[cjk] ranges=%d glyph(U+3042)=%s w=%d\n", ui::cjk().rangeCount(),
+                      ok ? "ok" : "missing", w);
+    }
+```
+
+and `#include "ui/cjkdata.h"`.
+
+- [ ] **Step 8: Build, flash, observe**
+
+Build + flash. Expected: build `Flash:` around 64–66 %; serial `[cjk] ranges=N glyph(U+3042)=ok w=16`;
+`[mem] boot+wifi` free/largest unchanged from Part 3 (± 1 KB).
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add tools/gen_cjk_font.py data/cjk16.bin src/ui/cjkfont.h src/ui/cjkfont.cpp test/test_cjkfont/test_cjkfont.cpp src/ui/cjkdata.h src/ui/cjkdata.cpp platformio.ini src/main.cpp
+git commit -m "feat(ui): embed GNU Unifont CJK glyphs in flash with a tested reader"
+```
+
+---
+
+### Task 25: Glyph runs — decode, measure, fit, wrap (PURE)
+
+**Files:**
+- Create: `src/util/glyphrun.h`, `src/util/glyphrun.cpp`, `test/test_glyphrun/test_glyphrun.cpp`
+
+**Interfaces:**
+- Consumes: `txt::foldMarks`, `txt::Mark` (Task 23).
+- Produces (namespace `glyphrun`): `enum class Kind : uint8_t { Ascii, Wide };`
+  `struct Item { Kind kind; char ch; txt::Mark mark; uint32_t cp; uint8_t w; };`
+  `using AsciiWidthFn = int (*)(char c, void* ctx);` `using WideWidthFn = int (*)(uint32_t cp, void* ctx);` (0 = not covered)
+  `size_t decode(const char* utf8, Item* out, size_t cap, AsciiWidthFn aw, WideWidthFn ww, void* ctx, bool upper = false);`
+  `int width(const Item* it, size_t n);`
+  `size_t fit(Item* it, size_t n, size_t cap, int maxW, AsciiWidthFn aw, void* ctx);` (truncates and appends "..." when needed; returns new count)
+  `struct Wrap { size_t aEnd, bStart, bEnd; bool bEllipsis; };` `Wrap wrapTwo(const Item* it, size_t n, int maxW, int ellipsisW);`
+
+- [ ] **Step 1: Failing test `test/test_glyphrun/test_glyphrun.cpp`**
+
+```cpp
+#include <unity.h>
+#include <cstring>
+#include "../../src/util/glyphrun.h"
+
+using glyphrun::Item;
+using glyphrun::Kind;
+void setUp() {}
+void tearDown() {}
+
+// Fake fonts: ASCII 6 px; kana/hanzi 16 px; half-width katakana (U+FF61..FF9F) 8 px.
+static int aw(char, void*) { return 6; }
+static int ww(uint32_t cp, void*) {
+    if (cp >= 0xFF61 && cp <= 0xFF9F) return 8;
+    if ((cp >= 0x3000 && cp <= 0x30FF) || (cp >= 0x4E00 && cp <= 0x9FFF)) return 16;
+    return 0;
+}
+static Item buf[128];
+
+void test_decode_mixed_ascii_accent_cjk() {
+    // "Aç あ愛" : A, c(cedilla), space, あ, 愛
+    size_t n = glyphrun::decode("A\xC3\xA7 \xE3\x81\x82\xE6\x84\x9B", buf, 128, aw, ww, nullptr);
+    TEST_ASSERT_EQUAL_INT(5, (int)n);
+    TEST_ASSERT_EQUAL_INT((int)Kind::Ascii, (int)buf[1].kind);
+    TEST_ASSERT_EQUAL_INT('c', buf[1].ch);
+    TEST_ASSERT_EQUAL_INT((int)txt::Mark::Cedilla, (int)buf[1].mark);
+    TEST_ASSERT_EQUAL_INT((int)Kind::Wide, (int)buf[3].kind);
+    TEST_ASSERT_EQUAL_HEX32(0x3042, buf[3].cp);
+    TEST_ASSERT_EQUAL_HEX32(0x611B, buf[4].cp);
+    TEST_ASSERT_EQUAL_INT(6 * 3 + 16 * 2, glyphrun::width(buf, n));
+}
+void test_decode_drops_unsupported() {
+    // emoji (4-byte), Hangul (not covered), stray continuation byte
+    size_t n = glyphrun::decode("a\xF0\x9F\x98\x80" "b\xEA\xB0\x80" "c\x80" "d", buf, 128, aw, ww, nullptr);
+    TEST_ASSERT_EQUAL_INT(4, (int)n);
+    TEST_ASSERT_EQUAL_INT('a', buf[0].ch);
+    TEST_ASSERT_EQUAL_INT('d', buf[3].ch);
+}
+void test_decode_half_width_and_upper() {
+    size_t n = glyphrun::decode("ab\xEF\xBD\xB1", buf, 128, aw, ww, nullptr, true);   // "abｱ"
+    TEST_ASSERT_EQUAL_INT(3, (int)n);
+    TEST_ASSERT_EQUAL_INT('A', buf[0].ch);
+    TEST_ASSERT_EQUAL_INT(8, buf[2].w);
+}
+void test_decode_respects_capacity() {
+    size_t n = glyphrun::decode("abcdef", buf, 4, aw, ww, nullptr);
+    TEST_ASSERT_EQUAL_INT(4, (int)n);
+}
+void test_fit_appends_ellipsis() {
+    size_t n = glyphrun::decode("\xE3\x81\x82\xE3\x81\x82\xE3\x81\x82\xE3\x81\x82", buf, 128, aw, ww, nullptr);   // 4 x 16 px
+    n = glyphrun::fit(buf, n, 128, 50, aw, nullptr);   // 50 px: 1 kana (16) + "..." (18) = 34; 2 kana = 50
+    TEST_ASSERT_TRUE(glyphrun::width(buf, n) <= 50);
+    TEST_ASSERT_EQUAL_INT('.', buf[n - 1].ch);
+    TEST_ASSERT_EQUAL_INT((int)Kind::Wide, (int)buf[0].kind);
+}
+void test_fit_short_is_untouched() {
+    size_t n = glyphrun::decode("hi", buf, 128, aw, ww, nullptr);
+    TEST_ASSERT_EQUAL_INT(2, (int)glyphrun::fit(buf, n, 128, 100, aw, nullptr));
+}
+void test_wrap_ascii_at_space() {
+    size_t n = glyphrun::decode("aaaa bbbb cccc", buf, 128, aw, ww, nullptr);   // 6 px each
+    glyphrun::Wrap w = glyphrun::wrapTwo(buf, n, 60, 18);   // 10 chars per line
+    TEST_ASSERT_EQUAL_INT(9, (int)w.aEnd);                  // "aaaa bbbb"
+    TEST_ASSERT_EQUAL_INT(10, (int)w.bStart);               // "cccc"
+    TEST_ASSERT_EQUAL_INT(14, (int)w.bEnd);
+    TEST_ASSERT_FALSE(w.bEllipsis);
+}
+void test_wrap_cjk_between_characters() {
+    // 10 kana, no spaces; 64 px per line = 4 kana
+    size_t n = glyphrun::decode("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
+                                "\xE3\x81\x8B\xE3\x81\x8D\xE3\x81\x8F\xE3\x81\x91\xE3\x81\x93",
+                                buf, 128, aw, ww, nullptr);
+    glyphrun::Wrap w = glyphrun::wrapTwo(buf, n, 64, 18);
+    TEST_ASSERT_EQUAL_INT(4, (int)w.aEnd);
+    TEST_ASSERT_EQUAL_INT(4, (int)w.bStart);
+    TEST_ASSERT_TRUE(w.bEllipsis);                           // 6 left, only fits 2 + "..."
+    TEST_ASSERT_TRUE(16 * (int)(w.bEnd - w.bStart) + 18 <= 64);
+}
+void test_wrap_single_line() {
+    size_t n = glyphrun::decode("short", buf, 128, aw, ww, nullptr);
+    glyphrun::Wrap w = glyphrun::wrapTwo(buf, n, 60, 18);
+    TEST_ASSERT_EQUAL_INT(5, (int)w.aEnd);
+    TEST_ASSERT_EQUAL_INT((int)w.bStart, (int)w.bEnd);       // empty line b
+}
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_decode_mixed_ascii_accent_cjk);
+    RUN_TEST(test_decode_drops_unsupported);
+    RUN_TEST(test_decode_half_width_and_upper);
+    RUN_TEST(test_decode_respects_capacity);
+    RUN_TEST(test_fit_appends_ellipsis);
+    RUN_TEST(test_fit_short_is_untouched);
+    RUN_TEST(test_wrap_ascii_at_space);
+    RUN_TEST(test_wrap_cjk_between_characters);
+    RUN_TEST(test_wrap_single_line);
+    return UNITY_END();
+}
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_glyphrun\test_glyphrun.cpp`
+Expected: `COMPILE FAILED` (`glyphrun.h` missing).
+
+- [ ] **Step 3: Create `src/util/glyphrun.h` / `glyphrun.cpp`**
+
+```cpp
+// glyphrun.h
+#pragma once
+#include <cstddef>
+#include <cstdint>
+#include "text.h"
+// UTF-8 text as a run of drawable items: ASCII glyphs of font 2 (with an optional accent mark)
+// and Wide glyphs from the CJK font. PURE, host-tested; widths come from caller functions.
+namespace glyphrun {
+enum class Kind : uint8_t { Ascii, Wide };
+struct Item { Kind kind; char ch; txt::Mark mark; uint32_t cp; uint8_t w; };
+using AsciiWidthFn = int (*)(char c, void* ctx);
+using WideWidthFn = int (*)(uint32_t cp, void* ctx);   // 0 = not covered by the font
+// Decodes UTF-8: ASCII and Latin-1 letters -> Ascii (+mark, txt::foldMarks rules); codepoints
+// the wide font covers -> Wide; everything else is dropped. upper: upper-case ASCII only.
+size_t decode(const char* utf8, Item* out, size_t cap, AsciiWidthFn aw, WideWidthFn ww,
+              void* ctx, bool upper = false);
+int width(const Item* it, size_t n);
+// If the run is wider than maxW: drop items from the end and append "..." (3 Ascii '.') so it
+// fits. Returns the new count (<= cap).
+size_t fit(Item* it, size_t n, size_t cap, int maxW, AsciiWidthFn aw, void* ctx);
+// Up to two lines of maxW: line a = [0, aEnd), line b = [bStart, bEnd) (+ "..." if bEllipsis).
+// Breaks at the last fitting space, or between characters next to a Wide item (CJK has no
+// spaces), else hard. ellipsisW = width of "...".
+struct Wrap { size_t aEnd, bStart, bEnd; bool bEllipsis; };
+Wrap wrapTwo(const Item* it, size_t n, int maxW, int ellipsisW);
+}
+```
+
+```cpp
+// glyphrun.cpp
+#include "glyphrun.h"
+#include <cctype>
+
+namespace glyphrun {
+
+size_t decode(const char* s, Item* out, size_t cap, AsciiWidthFn aw, WideWidthFn ww, void* ctx,
+              bool upper) {
+    size_t n = 0;
+    if (!s) return 0;
+    for (size_t i = 0; s[i] && n < cap;) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80) {                                   // ASCII
+            char ch = upper ? (char)toupper(c) : (char)c;
+            out[n++] = {Kind::Ascii, ch, txt::Mark::None, c, (uint8_t)aw(ch, ctx)};
+            ++i;
+            continue;
+        }
+        int len = (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 1;
+        bool complete = true;
+        for (int k = 1; k < len; ++k)
+            if (((unsigned char)s[i + k] & 0xC0) != 0x80) { complete = false; break; }
+        if (!complete || len == 1) { ++i; continue; }     // stray/invalid byte
+        if (len == 2) {                                   // Latin-1 letters -> base + mark
+            char seq[3] = {s[i], s[i + 1], 0}, base[4];
+            txt::Mark marks[4];
+            size_t m = txt::foldMarks(seq, base, marks, sizeof(base));
+            for (size_t k = 0; k < m && n < cap; ++k) {
+                char ch = upper ? (char)toupper((unsigned char)base[k]) : base[k];
+                out[n++] = {Kind::Ascii, ch, marks[k], (uint32_t)(unsigned char)base[k],
+                            (uint8_t)aw(ch, ctx)};
+            }
+        } else if (len == 3) {
+            uint32_t cp = ((c & 0x0F) << 12) | (((unsigned char)s[i + 1] & 0x3F) << 6) |
+                          ((unsigned char)s[i + 2] & 0x3F);
+            int w = ww(cp, ctx);
+            if (w > 0) out[n++] = {Kind::Wide, 0, txt::Mark::None, cp, (uint8_t)w};
+        }                                                  // 4-byte (emoji...) dropped
+        i += len;
+    }
+    return n;
+}
+
+int width(const Item* it, size_t n) {
+    int w = 0;
+    for (size_t i = 0; i < n; ++i) w += it[i].w;
+    return w;
+}
+
+size_t fit(Item* it, size_t n, size_t cap, int maxW, AsciiWidthFn aw, void* ctx) {
+    if (width(it, n) <= maxW) return n;
+    int dot = aw('.', ctx);
+    while (n > 0 && width(it, n) + 3 * dot > maxW) --n;
+    for (int k = 0; k < 3 && n < cap; ++k)
+        it[n++] = {Kind::Ascii, '.', txt::Mark::None, '.', (uint8_t)dot};
+    return n;
+}
+
+// Number of items from `start` that fit in maxW.
+static size_t fitCount(const Item* it, size_t start, size_t n, int maxW) {
+    int w = 0;
+    size_t k = start;
+    while (k < n && w + it[k].w <= maxW) w += it[k++].w;
+    return k - start;
+}
+
+static bool isSpace(const Item& x) { return x.kind == Kind::Ascii && x.ch == ' '; }
+
+Wrap wrapTwo(const Item* it, size_t n, int maxW, int ellipsisW) {
+    size_t fitA = fitCount(it, 0, n, maxW);
+    if (fitA >= n) return {n, n, n, false};
+    size_t cut = fitA, next = fitA;                       // hard split by default
+    for (size_t k = fitA; k > 0; --k) {
+        if (isSpace(it[k])) { cut = k; next = k + 1; break; }          // break at a space
+        if (it[k].kind == Kind::Wide || it[k - 1].kind == Kind::Wide) { cut = next = k; break; }
+    }
+    if (cut == 0) cut = next = fitA;
+    Wrap w{cut, next, n, false};
+    if (width(it + next, n - next) > maxW) {
+        w.bEllipsis = true;
+        w.bEnd = next + fitCount(it, next, n, maxW - ellipsisW);
+    }
+    return w;
+}
+
+}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 test\test_glyphrun\test_glyphrun.cpp src\util\glyphrun.cpp src\util\text.cpp`
+Expected: `9 Tests 0 Failures 0 Ignored` / `OK`. (If `test_wrap_ascii_at_space` disagrees on
+`aEnd`, check that the space at index 9 is excluded from line a — `cut = k` with `it[k]` the space.)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/util/glyphrun.h src/util/glyphrun.cpp test/test_glyphrun/test_glyphrun.cpp
+git commit -m "feat(text): add tested glyph runs for mixed ASCII/accent/CJK text"
+```
+
+---
+
+### Task 26: Draw glyph runs (lyrics, info box, device name)
+
+**Files:**
+- Rewrite: `src/ui/textdraw.h`, `src/ui/textdraw.cpp`
+- Modify: `src/ui/screen_now.cpp` (`drawLyricArea`), `src/lyrics/lrclib.cpp` (truncation log)
+- Delete: `src/util/textfit.h`, `src/util/textfit.cpp`, `test/test_textfit/test_textfit.cpp` (superseded by `glyphrun::wrapTwo`)
+- Modify: `CREDITS.md`
+
+**Interfaces:**
+- Consumes: `glyphrun::*` (Task 25), `ui::cjk()` (Task 24), `accents::*`, `ui::shadowText`.
+- Produces: `int ui::drawText(...)` (same signature as Task 23, now CJK-aware);
+  `int ui::drawRun(TFT_eSPI&, const glyphrun::Item* it, size_t n, int x, int y, uint16_t fg, uint16_t shadow, uint8_t datum)`;
+  `constexpr int ui::CJK_DY` (vertical offset of Unifont glyphs vs font 2, tuned on device).
+  `drawFolded` is removed (no remaining callers after this task).
+
+- [ ] **Step 1: Replace `src/ui/textdraw.h`**
+
+```cpp
+#pragma once
+#include <TFT_eSPI.h>
+#include <stddef.h>
+#include "../util/glyphrun.h"
+// Text with Portuguese/Latin-1 accents (pixel marks over font 2) and Japanese/Chinese
+// (Unifont glyphs from flash). Font 2 only: all dynamic text uses it.
+namespace ui {
+// Vertical offset of the 16-row Unifont cell vs font 2's (baseline row 12); tune on the panel.
+constexpr int CJK_DY = 0;
+// UTF-8, optionally upper-cased (ASCII only), truncated with "..." to maxW; 1 px shadow.
+// Datums: TL, TC, TR, ML, MC. Returns the drawn width.
+int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint8_t font, uint16_t fg,
+             uint16_t shadow, uint8_t datum, int maxW, bool upper = false);
+// Draws an already-decoded run (e.g. one wrapped lyric line). Returns its width.
+int drawRun(TFT_eSPI& t, const glyphrun::Item* it, size_t n, int x, int y, uint16_t fg,
+            uint16_t shadow, uint8_t datum);
+// Width callbacks for glyphrun (ctx = TFT_eSPI*).
+int asciiWidth2(char c, void* ctx);
+int wideWidth(uint32_t cp, void* ctx);
+}
+```
+
+- [ ] **Step 2: Replace `src/ui/textdraw.cpp`**
+
+```cpp
+#include "textdraw.h"
+#include "accents.h"
+#include "battle.h"
+#include "cjkdata.h"
+
+namespace ui {
+
+int asciiWidth2(char c, void* ctx) {
+    char one[2] = {c, 0};
+    return ((TFT_eSPI*)ctx)->textWidth(one, 2);
+}
+
+int wideWidth(uint32_t cp, void*) {
+    int w = 0;
+    return cjk().glyph(cp, &w) ? w : 0;
+}
+
+static void drawMark(TFT_eSPI& t, txt::Mark m, char base, int cx, int top, uint16_t col) {
+    int r0 = top + accents::topRow(m, base);
+    for (int y = 0; y < accents::H; ++y) {
+        const char* r = accents::row(m, y);
+        if (!r) return;
+        for (int x = 0; x < accents::W; ++x)
+            if (r[x] == '#') t.drawPixel(cx - accents::W / 2 + x, r0 + y, col);
+    }
+}
+
+static void drawWide(TFT_eSPI& t, uint32_t cp, int x, int top, uint16_t col) {
+    int w = 0;
+    const uint8_t* g = cjk().glyph(cp, &w);
+    if (!g) return;
+    int bpr = w / 8;                                     // bytes per row
+    for (int r = 0; r < 16; ++r)
+        for (int c = 0; c < w; ++c)
+            if ((g[r * bpr + c / 8] >> (7 - (c & 7))) & 1) t.drawPixel(x + c, top + CJK_DY + r, col);
+}
+
+int drawRun(TFT_eSPI& t, const glyphrun::Item* it, size_t n, int x, int y, uint16_t fg,
+            uint16_t shadow, uint8_t datum) {
+    int w = glyphrun::width(it, n), h = t.fontHeight(2);
+    int left = x, top = y;
+    switch (datum) {
+        case TC_DATUM: left = x - w / 2; break;
+        case TR_DATUM: left = x - w; break;
+        case ML_DATUM: top = y - h / 2; break;
+        case MC_DATUM: left = x - w / 2; top = y - h / 2; break;
+        default: break;   // TL_DATUM
+    }
+    int px = left;
+    char one[2] = {0, 0};
+    for (size_t i = 0; i < n; ++i) {
+        const glyphrun::Item& g = it[i];
+        if (g.kind == glyphrun::Kind::Wide) {
+            drawWide(t, g.cp, px + 1, top + 1, shadow);   // shadow first, like shadowText
+            drawWide(t, g.cp, px, top, fg);
+        } else {
+            one[0] = g.ch;
+            shadowText(t, one, px, top, 2, fg, shadow, TL_DATUM);
+            if (g.mark != txt::Mark::None) {
+                int cx = px + (g.w - 1) / 2;
+                drawMark(t, g.mark, g.ch, cx + 1, top + 1, shadow);
+                drawMark(t, g.mark, g.ch, cx, top, fg);
+            }
+        }
+        px += g.w;
+    }
+    return w;
+}
+
+int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint8_t font, uint16_t fg,
+             uint16_t shadow, uint8_t datum, int maxW, bool upper) {
+    (void)font;   // dynamic text is font 2
+    glyphrun::Item items[96];
+    size_t n = glyphrun::decode(utf8 ? utf8 : "", items, 96, asciiWidth2, wideWidth, &t, upper);
+    n = glyphrun::fit(items, n, 96, maxW, asciiWidth2, &t);
+    return drawRun(t, items, n, x, y, fg, shadow, datum);
+}
+
+}
+```
+
+- [ ] **Step 3: Lyrics through glyph runs (`src/ui/screen_now.cpp`)**
+
+Replace `#include "../util/textfit.h"` with nothing (remove it) and the `tftWidth2` helper (no
+longer used), then replace `drawLyricArea` with:
+
+```cpp
+void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
+    const char* line = currentLine ? currentLine : "";
+    if (g_lastLyric == line) return;
+    g_lastLyric = line;
+
+    const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
+    t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
+    static glyphrun::Item items[160];   // static: keep the UI loop stack small
+    size_t n = glyphrun::decode(line, items, 160, asciiWidth2, wideWidth, &t);
+    if (!n) return;
+    drawIcon(t, icons::Icon::Note, ix + 2, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    drawIcon(t, icons::Icon::Note, ix + iw - 14, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    const int textW = iw - 2 * 18;
+    glyphrun::Wrap w = glyphrun::wrapTwo(items, n, textW, 3 * asciiWidth2('.', &t));
+    int cx = DLG_X + DLG_W / 2;
+    if (w.bStart >= w.bEnd) {
+        drawRun(t, items, w.aEnd, cx, DLG_Y + 20, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+    } else {
+        drawRun(t, items, w.aEnd, cx, DLG_Y + 12, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        size_t bn = w.bEnd - w.bStart;
+        static glyphrun::Item lineB[164];
+        for (size_t k = 0; k < bn; ++k) lineB[k] = items[w.bStart + k];
+        if (w.bEllipsis)
+            for (int k = 0; k < 3; ++k)
+                lineB[bn++] = {glyphrun::Kind::Ascii, '.', txt::Mark::None, '.',
+                               (uint8_t)asciiWidth2('.', &t)};
+        drawRun(t, lineB, bn, cx, DLG_Y + 29, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+    }
+}
+```
+
+(`g_lastLyric` now compares the raw UTF-8 line.)
+
+- [ ] **Step 4: Remove the superseded wrap module**
+
+`git rm src/util/textfit.h src/util/textfit.cpp test/test_textfit/test_textfit.cpp`;
+`grep -rn "textfit\|drawFolded" src test` prints nothing.
+
+- [ ] **Step 5: Log lyric arena truncation (`src/lyrics/lrclib.cpp`)**
+
+After `int n = lyricbuf::parse(doc["syncedLyrics"] | "", out);` replace the `Serial.printf("[lyrics] synced lines=%d\n", n);` line with:
+
+```cpp
+    const char* synced = doc["syncedLyrics"] | "";
+    size_t srcLines = 0;
+    for (const char* p = synced; *p; ++p) srcLines += (*p == '\n');
+    Serial.printf("[lyrics] synced lines=%d%s\n", n,
+                  (size_t)n + 1 < srcLines ? " (arena full: tail dropped)" : "");
+```
+
+(keep the `parse` call before it; `synced` reads the same document).
+
+- [ ] **Step 6: Credit Unifont (`CREDITS.md`)**
+
+Add a bullet:
+
+```markdown
+- **Japanese/Chinese glyphs:** [GNU Unifont](https://unifoundry.com/unifont/) 16.0.04 (kana,
+  CJK symbols, half/full-width forms, CJK Unified Ideographs), GPLv2+ with the GNU font
+  embedding exception / SIL OFL 1.1; converted to `data/cjk16.bin` by `tools/gen_cjk_font.py`.
+```
+
+- [ ] **Step 7: Host suites, build, flash, observe**
+
+All suites (with `test_cjkfont`, `test_glyphrun`; without `test_textfit`) → `OK`; build + flash.
+Play a Japanese and a Chinese song (and keep a Portuguese one for regression). Expected:
+lyric lines and titles show kana/hanzi; long CJK lines wrap between characters with "..." on the
+second line; mixed lines (ASCII + CJK, accents) sit on one baseline — adjust `CJK_DY` if the CJK
+glyphs look high/low; accents still correct. `[lyrics] synced lines=N` without "arena full" for
+typical songs.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/ui/textdraw.h src/ui/textdraw.cpp src/ui/screen_now.cpp src/lyrics/lrclib.cpp CREDITS.md
+git rm src/util/textfit.h src/util/textfit.cpp test/test_textfit/test_textfit.cpp
+git commit -m "feat(ui): render Japanese/Chinese titles and lyrics with the embedded CJK font"
+```
+
+---
+
+### Task 27: Verification + history
+
+**Files:** Modify `README.md`.
+
+- [ ] **Step 1: 10-minute session**
+
+`python tools/capture_serial.py COM11 600 <scratchpad>/session-part4.log` while playing a mix
+(Japanese, Chinese, Portuguese, English; skips; pause/resume); then
+`python tools/analyze_session.py <log>`.
+Expected: `allocfail 0`, `TLS alloc -32512 0`, no restarts after boot; `[mem]` figures within
+~1 KB of Part 3.
+
+- [ ] **Step 2: README**
+
+Add history item **11. Japanese/Chinese text** (the ASCII-only cause, Unifont in flash with its
+size, 0 RAM, glyph runs and CJK wrapping, session numbers) and mention `tools/gen_cjk_font.py`
+under "Build & flash".
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md
+git commit -m "docs: record Japanese/Chinese text support in the history"
+```
