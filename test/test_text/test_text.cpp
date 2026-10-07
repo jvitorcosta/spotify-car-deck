@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <cstring>
 #include "../../src/util/text.h"
 
 void setUp() {}
@@ -58,8 +59,34 @@ void test_fold_marks_null_marks_matches_ascii_fold() {
     txt::foldMarks("N\xC3\xA3o \xC3\xA9", b, nullptr, sizeof(b));
     TEST_ASSERT_EQUAL_STRING(a, b);
 }
+void test_copy_id_short_is_copied_verbatim() {
+    char o[64];
+    txt::copyId("spotify:track:4uLU6hMCjMI75M1A2tKUQC", o, sizeof(o));
+    TEST_ASSERT_EQUAL_STRING("spotify:track:4uLU6hMCjMI75M1A2tKUQC", o);
+}
+void test_copy_id_long_ids_stay_distinct() {
+    // Local files: spotify:local:<artist>:<album>:<title>:<seconds>; same album -> same prefix.
+    const char* a = "spotify:local:Some+Long+Artist+Name:Some+Long+Album+Name:Track+One:215";
+    const char* b = "spotify:local:Some+Long+Artist+Name:Some+Long+Album+Name:Track+Two:198";
+    char oa[64], ob[64];
+    txt::copyId(a, oa, sizeof(oa));
+    txt::copyId(b, ob, sizeof(ob));
+    TEST_ASSERT_TRUE(strlen(oa) < sizeof(oa));
+    TEST_ASSERT_TRUE(strcmp(oa, ob) != 0);
+    char again[64];
+    txt::copyId(a, again, sizeof(again));
+    TEST_ASSERT_EQUAL_STRING(oa, again);   // stable: same id -> same key
+}
+void test_copy_id_null_is_empty() {
+    char o[8] = "x";
+    txt::copyId(nullptr, o, sizeof(o));
+    TEST_ASSERT_EQUAL_STRING("", o);
+}
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_copy_id_short_is_copied_verbatim);
+    RUN_TEST(test_copy_id_long_ids_stay_distinct);
+    RUN_TEST(test_copy_id_null_is_empty);
     RUN_TEST(test_ascii_passthrough);
     RUN_TEST(test_portuguese_lower);
     RUN_TEST(test_portuguese_mixed);

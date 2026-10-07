@@ -1,6 +1,24 @@
 #include "text.h"
+#include <cstring>
 
 namespace txt {
+
+void copyId(const char* src, char* dst, size_t n) {
+    if (n == 0) return;
+    dst[0] = '\0';
+    if (!src) return;
+    size_t len = strlen(src);
+    if (len < n) { memcpy(dst, src, len + 1); return; }
+    if (n < 10) { memcpy(dst, src, n - 1); dst[n - 1] = '\0'; return; }
+    uint32_t h = 2166136261u;                       // FNV-1a over the whole id
+    for (size_t i = 0; i < len; ++i) { h ^= (uint8_t)src[i]; h *= 16777619u; }
+    size_t keep = n - 10;                           // prefix + '#' + 8 hex + NUL
+    memcpy(dst, src, keep);
+    dst[keep] = '#';
+    static const char hex[] = "0123456789abcdef";
+    for (int i = 0; i < 8; ++i) dst[keep + 1 + i] = hex[(h >> (28 - 4 * i)) & 0xF];
+    dst[n - 1] = '\0';
+}
 
 // ASCII base for a Latin-1 code point (U+00C0..U+00FF).
 static const char* foldLatin1(unsigned int cp) {

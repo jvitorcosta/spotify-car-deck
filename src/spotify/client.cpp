@@ -5,6 +5,8 @@
 #include <SpotifyArduino.h>
 #include "../config.h"
 #include "../spotify/auth.h"
+#include "../util/ctxcache.h"
+#include "../util/text.h"
 
 namespace spclient {
 static WiFiClientSecure client;
@@ -23,7 +25,7 @@ static void onPlaying(CurrentlyPlaying cp) {
     // titles; accents are folded to ASCII at display time instead.
     if (strncmp(st.trackName, cp.trackName, sizeof(st.trackName)) != 0) trackChanged = true;
     copyStr(st.trackName, cp.trackName, sizeof(st.trackName));
-    copyStr(st.trackUri, cp.trackUri, sizeof(st.trackUri));
+    txt::copyId(cp.trackUri, st.trackUri, sizeof(st.trackUri));   // long local-file URIs stay distinct
     copyStr(st.artist, cp.numArtists > 0 ? cp.artists[0].artistName : nullptr, sizeof(st.artist));
     copyStr(st.album, cp.albumName, sizeof(st.album));
     // choose the ~300px image (index 1 is usually 300px; fall back to 0)
@@ -85,40 +87,43 @@ static bool ensureAccessToken() {
     return true;
 }
 
-// uri like "spotify:playlist:ID" / ":album:" / ":artist:"
-static void resolveContext(const char* uri, char* out, size_t n) {
+// uri like "spotify:playlist:ID" / ":album:" / ":artist:". Returns false when the lookup
+// failed for a reason worth retrying (no token, network, 5xx/429); `out` then holds the type
+// ("playlist") as a placeholder. 403/404 (private or deleted playlist) are final.
+static bool resolveContext(const char* uri, char* out, size_t n) {
     out[0] = '\0';
-    if (!uri || !uri[0]) { strncpy(out, "-", n - 1); out[n - 1] = 0; return; }
+    if (!uri || !uri[0]) { strncpy(out, "-", n - 1); out[n - 1] = 0; return true; }
     String u = uri;
     int p1 = u.indexOf(':'), p2 = u.indexOf(':', p1 + 1);
-    if (p1 < 0 || p2 < 0) { strncpy(out, "-", n - 1); out[n - 1] = 0; return; }
+    if (p1 < 0 || p2 < 0) { strncpy(out, "-", n - 1); out[n - 1] = 0; return true; }
     String type = u.substring(p1 + 1, p2), id = u.substring(p2 + 1);
 
     const char* endpoint = nullptr;
     if (type == "playlist") endpoint = "playlists";
     else if (type == "album") endpoint = "albums";
     else if (type == "artist") endpoint = "artists";
-    if (!endpoint || !ensureAccessToken()) {
-        strncpy(out, type.c_str(), n - 1); out[n - 1] = 0; return;
-    }
+    strncpy(out, type.c_str(), n - 1); out[n - 1] = 0;   // placeholder until resolved
+    if (!endpoint) return true;                            // e.g. "collection": nothing to look up
+    if (!ensureAccessToken()) return false;
     WiFiClientSecure c; c.setInsecure();
     c.setHandshakeTimeout(8);   // seconds; defaults (30 s connect, 120 s handshake) stalled polls
     HTTPClient https;
     https.setTimeout(8000);
     String url = "https://api.spotify.com/v1/" + String(endpoint) + "/" + id + "?fields=name";
-    if (!https.begin(c, url)) { strncpy(out, type.c_str(), n - 1); out[n - 1] = 0; return; }
+    if (!https.begin(c, url)) return false;
     https.addHeader("Authorization", g_accessToken);
     int rc = https.GET();
+    bool ok = rc == 403 || rc == 404;
     if (rc == 200) {
         JsonDocument d;
-        if (!deserializeJson(d, https.getString()) && d["name"].is<const char*>())
+        if (!deserializeJson(d, https.getString()) && d["name"].is<const char*>()) {
             strncpy(out, d["name"], n - 1);          // raw; folded at display time
-        else strncpy(out, type.c_str(), n - 1);
-    } else {
-        strncpy(out, type.c_str(), n - 1);
+            out[n - 1] = 0;
+            ok = true;
+        }
     }
-    out[n - 1] = 0;
     https.end();
+    return ok;
 }
 
 bool poll(AppState& st) {
@@ -129,13 +134,14 @@ bool poll(AppState& st) {
         // st.context holds the raw context URI (set in onPlaying). Resolve it to
         // a human name once per context change (cached), done here — never inside
         // the getCurrentlyPlaying callback (no nested HTTPS during its parse).
-        static char cachedUri[64] = "";
+        // A failed lookup is retried after ctxcache::RETRY_MS (it used to stick until the
+        // context changed, leaving "playlist" in the header).
+        static ctxcache::Cache cache;
         static char cachedName[64] = "";
-        if (strcmp(cachedUri, st.context) != 0) {
-            resolveContext(st.context, cachedName, sizeof(cachedName));
-            strncpy(cachedUri, st.context, sizeof(cachedUri) - 1);
-            cachedUri[sizeof(cachedUri) - 1] = 0;
-            Serial.printf("[spotify] context: %s\n", cachedName);
+        if (cache.needsLookup(st.context, millis())) {
+            bool ok = resolveContext(st.context, cachedName, sizeof(cachedName));
+            cache.store(st.context, ok, millis());
+            Serial.printf("[spotify] context: %s%s\n", cachedName, ok ? "" : " (lookup failed, will retry)");
         }
         strncpy(st.context, cachedName, sizeof(st.context) - 1);
         st.context[sizeof(st.context) - 1] = 0;
