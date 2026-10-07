@@ -1,5 +1,6 @@
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 // Byte-addressable internal RAM — what byte buffers, mbedTLS and the WiFi driver can use.
 // ESP.getFreeHeap()/getMaxAllocHeap() also count 32-bit-only IRAM and read ~60 KB too high;
 // that hid an exhausted heap (README "Design & performance history").
@@ -7,5 +8,6 @@ namespace mem {
 size_t byteFree();
 size_t byteLargest();
 void log(const char* where);   // "[mem] <where> free=... largest=... [allocfail=N (last ...)]"
+uint32_t failTotal();          // failed allocations since boot (monotonic)
 void installFailHook();        // counts failed allocations; log() reports and resets the count
 }

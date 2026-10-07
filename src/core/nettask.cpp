@@ -23,6 +23,7 @@ static netplan::TrackGen s_gen;
 static netplan::Work s_work{};
 static netplan::LinkGate s_link;
 static netplan::Health s_health;
+static uint32_t s_failsAtOk = 0;   // mem::failTotal() at the last good poll
 static bool s_spotifyReady = false;   // WiFi + spclient::begin() done   // pause optional work / restart when polls keep failing   // "No signal" only after several failed polls in a row
 static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot (Task 12)
 static uint32_t s_t0 = 0;
@@ -120,12 +121,15 @@ static void run(void*) {
             spclient::poll(s_st);
             tock("poll");
             bool ok = s_st.status != PlaybackStatus::Offline;
-            if (ok) s_st.lastPollOkMs = millis();
+            if (ok) { s_st.lastPollOkMs = millis(); s_failsAtOk = mem::failTotal(); }
+            // Restart only helps a starved heap: allocations failed since the last good poll,
+            // or no block big enough for TLS. A dead zone or a 401/429 is not that.
+            bool starved = mem::failTotal() != s_failsAtOk || mem::byteLargest() < netplan::TLS_NEED;
             if (!ok) mem::log("poll failed");
-            if (s_health.onPoll(ok, net::isOnline(), now) == netplan::Health::Action::Restart) {
+            if (s_health.onPoll(ok, net::isOnline(), starved, now) == netplan::Health::Action::Restart) {
                 mem::log("restart");
-                Serial.printf("[net] no good poll for %u s with WiFi up: restarting\n",
-                              (unsigned)(netplan::Health::RESTART_AFTER_MS / 1000));
+                Serial.printf("[net] self-heal restart (%s)\n",
+                              net::isOnline() ? "heap starved, no good poll for 180 s" : "WiFi down for 15 min");
                 delay(200);
                 ESP.restart();
             }

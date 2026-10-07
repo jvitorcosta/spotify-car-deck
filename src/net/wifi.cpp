@@ -20,7 +20,7 @@ bool connectAny() {
             delay(200);
         }
         Serial.printf("[wifi] %s failed\n", WIFI_NETWORKS[i].ssid);
-        WiFi.disconnect(true);
+        WiFi.disconnect();   // keep the driver up: disconnect(true) deinit/re-inits it each try
     }
     return false;
 }

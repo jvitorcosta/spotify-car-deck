@@ -10,6 +10,7 @@ static const uint32_t CAPS = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
 // packets burst in, and printing from there (115200 baud, ~5 ms a line) slowed the very
 // download that was short of memory. mem::log() reports them.
 static volatile uint32_t s_fails = 0;
+static volatile uint32_t s_failTotal = 0;
 static volatile uint32_t s_lastSize = 0;
 static volatile uint32_t s_lastCaps = 0;
 
@@ -30,9 +31,12 @@ void log(const char* where) {
 
 static void onAllocFail(size_t size, uint32_t caps, const char*) {
     s_fails = s_fails + 1;
+    s_failTotal = s_failTotal + 1;
     s_lastSize = (uint32_t)size;
     s_lastCaps = caps;
 }
+
+uint32_t failTotal() { return s_failTotal; }
 
 void installFailHook() { heap_caps_register_failed_alloc_callback(onAllocFail); }
 

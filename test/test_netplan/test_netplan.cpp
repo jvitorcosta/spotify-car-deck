@@ -82,37 +82,56 @@ void test_can_run_gates_on_largest_block() {
     TEST_ASSERT_TRUE(canRun(Step::None, 0));
 }
 using Act = netplan::Health::Action;
+// onPoll(ok, wifiUp, memStarved, nowMs)
 void test_health_success_is_none() {
     netplan::Health h;
-    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(true, true, 1000));
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(true, true, false, 1000));
     TEST_ASSERT_FALSE(h.optionalPaused());
 }
 void test_health_two_failures_pause_optional_until_success() {
     netplan::Health h;
-    h.onPoll(true, true, 1000);
-    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, true, 5000));
-    TEST_ASSERT_EQUAL_INT((int)Act::PauseOptional, (int)h.onPoll(false, true, 9000));
+    h.onPoll(true, true, false, 1000);
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, true, false, 5000));
+    TEST_ASSERT_EQUAL_INT((int)Act::PauseOptional, (int)h.onPoll(false, true, false, 9000));
     TEST_ASSERT_TRUE(h.optionalPaused());
-    h.onPoll(true, true, 13000);
+    h.onPoll(true, true, false, 13000);
     TEST_ASSERT_FALSE(h.optionalPaused());
 }
-void test_health_restart_after_180s_with_wifi_up() {
+void test_health_restart_after_180s_when_memory_starved() {
     netplan::Health h;
-    h.onPoll(true, true, 1000);
-    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 1000 + 179000));
-    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, 1000 + 180000));
+    h.onPoll(true, true, false, 1000);
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, true, 1000 + 179000));
+    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, true, 1000 + 180000));
 }
-void test_health_wifi_down_never_restarts_and_resets_timer() {
+void test_health_dead_zone_without_memory_evidence_never_restarts() {
+    // hotspot up, no mobile data (or 401/429): a restart can't fix it -> no reboot loop
     netplan::Health h;
-    h.onPoll(true, true, 1000);
-    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, false, 500000));
-    // WiFi back at 500 s: the 180 s clock starts again from there
-    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 504000));
-    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, 500000 + 180000));
+    h.onPoll(true, true, false, 1000);
+    for (uint32_t t = 5000; t < 3600000; t += 4000)
+        TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, false, t));
+}
+void test_health_wifi_down_backstop_after_15_min() {
+    netplan::Health h;
+    h.onPoll(true, true, false, 1000);
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, false, false, 500000));
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, false, false, 500000 + 899000));
+    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, false, false, 500000 + 900000));
+}
+void test_health_wifi_back_resets_backstop_and_memory_clock() {
+    netplan::Health h;
+    h.onPoll(true, true, false, 1000);
+    h.onPoll(false, false, false, 500000);                 // WiFi down at 500 s
+    h.onPoll(false, true, true, 1000000);                  // back up at 1000 s, starved
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, true, 1000000 + 179000));
+    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, true, 1000000 + 180000));
+    netplan::Health g;
+    g.onPoll(false, false, false, 0);
+    g.onPoll(false, true, false, 800000);                  // WiFi returned: backstop clock cleared
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)g.onPoll(false, false, false, 1000000));
 }
 void test_health_first_call_failing_starts_clock() {
     netplan::Health h;
-    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, 900000));
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, true, 900000));
 }
 void test_stale_after_limit_and_handles_wrap() {
     TEST_ASSERT_FALSE(netplan::stale(10000, 0, 20000));        // never polled: not "stale"
@@ -134,8 +153,10 @@ int main(int, char**) {
     RUN_TEST(test_can_run_gates_on_largest_block);
     RUN_TEST(test_health_success_is_none);
     RUN_TEST(test_health_two_failures_pause_optional_until_success);
-    RUN_TEST(test_health_restart_after_180s_with_wifi_up);
-    RUN_TEST(test_health_wifi_down_never_restarts_and_resets_timer);
+    RUN_TEST(test_health_restart_after_180s_when_memory_starved);
+    RUN_TEST(test_health_dead_zone_without_memory_evidence_never_restarts);
+    RUN_TEST(test_health_wifi_down_backstop_after_15_min);
+    RUN_TEST(test_health_wifi_back_resets_backstop_and_memory_clock);
     RUN_TEST(test_health_first_call_failing_starts_clock);
     RUN_TEST(test_stale_after_limit_and_handles_wrap);
     return UNITY_END();

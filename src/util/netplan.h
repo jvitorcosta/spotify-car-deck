@@ -33,20 +33,32 @@ private:
 };
 
 // Self-healing ladder. A heap so fragmented that TLS can't allocate never recovered by itself
-// (README "Design & performance history"), so: 2 failed polls in a row with WiFi up pause the
-// optional downloads; 180 s without a good poll while WiFi is up -> restart. WiFi down is the
-// reconnect logic's job and restarts the 180 s clock.
+// (README "Design & performance history"), so:
+//  - 2 failed polls in a row with WiFi up -> pause the optional downloads;
+//  - restart only on memory evidence (memStarved: failed allocations since the last good poll,
+//    or the largest block below TLS_NEED) after 180 s without a good poll — a dead zone or a
+//    401/429 can't be fixed by rebooting, and must not become a reboot loop;
+//  - WiFi down for 15 min straight -> restart (backstop if the WiFi driver can't come back).
 class Health {
 public:
     enum class Action { None, PauseOptional, Restart };
     static constexpr int FAILS_TO_PAUSE = 2;
     static constexpr uint32_t RESTART_AFTER_MS = 180000;
-    Action onPoll(bool ok, bool wifiUp, uint32_t nowMs) {
+    static constexpr uint32_t WIFI_DOWN_RESTART_MS = 900000;
+    Action onPoll(bool ok, bool wifiUp, bool memStarved, uint32_t nowMs) {
         if (!started_) { started_ = true; lastOk_ = nowMs; }
-        if (ok) { fails_ = 0; lastOk_ = nowMs; paused_ = false; return Action::None; }
+        if (ok) {
+            fails_ = 0; lastOk_ = nowMs; paused_ = false; wifiDown_ = false;
+            return Action::None;
+        }
+        if (!wifiUp) {
+            lastOk_ = nowMs;   // the memory clock only runs while WiFi is up
+            if (!wifiDown_) { wifiDown_ = true; downSince_ = nowMs; }
+            return nowMs - downSince_ >= WIFI_DOWN_RESTART_MS ? Action::Restart : Action::None;
+        }
+        if (wifiDown_) { wifiDown_ = false; lastOk_ = nowMs; }   // WiFi back: memory clock restarts
         ++fails_;
-        if (!wifiUp) { lastOk_ = nowMs; return Action::None; }
-        if (nowMs - lastOk_ >= RESTART_AFTER_MS) return Action::Restart;
+        if (memStarved && nowMs - lastOk_ >= RESTART_AFTER_MS) return Action::Restart;
         if (fails_ >= FAILS_TO_PAUSE) { paused_ = true; return Action::PauseOptional; }
         return Action::None;
     }
@@ -54,8 +66,10 @@ public:
 private:
     int fails_ = 0;
     uint32_t lastOk_ = 0;
+    uint32_t downSince_ = 0;
     bool started_ = false;
     bool paused_ = false;
+    bool wifiDown_ = false;
 };
 
 // True when a successful poll happened (lastOkMs != 0) more than limitMs ago (wrap-safe).
