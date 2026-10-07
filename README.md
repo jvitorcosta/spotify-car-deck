@@ -116,7 +116,7 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
    | | Before (10-min session) | After (270 s, 3 tracks) |
    |---|---|---|
    | Time frozen | 500 of 600 s | 0 |
-   | Failed allocations | 340 TLS + 230 WiFi | 0 |
+   | Failed allocations | 340 TLS + 230 WiFi | 0 TLS; 132 small (34 WiFi RX buffers, 98 ≤ 2.3 KB) |
    | Album art | 2.5–3.3 s (TLS) | 0.9–1.2 s (plain HTTP) |
    | Lyrics | 3.7 s | 2.4–2.7 s |
    | Lowest byte RAM free / largest block | 2 KB / 0.7 KB | 32 KB / 20.5 KB (during TLS) |
@@ -134,8 +134,26 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
     **0 bytes of RAM for the font** (flash 42 % → 57.6 %). Text is decoded into glyph runs
     (font-2 ASCII + accent marks, Unifont CJK), measured exactly and wrapped between CJK
     characters (no spaces). The lyric buffers cost ~1.7 KB of byte RAM.
-    10-minute session afterwards: 0 failed allocations, 0 TLS errors, 0 failed polls, 0 restarts;
-    byte RAM flat at 66–68 KB free / 34.8 KB largest block.
+    10-minute session afterwards: 0 TLS errors, 0 failed polls, 0 restarts; byte RAM flat at
+    66–68 KB free / 34.8 KB largest block. 2 811 WiFi receive buffers (1 512 B) could not be
+    allocated during traffic bursts — dropped packets that TCP resends. (This line first said
+    "0 failed allocations": the analyzer only counted the old per-failure `[allocfail]` lines,
+    not the counts in `[mem]` lines. Fixed in `tools/analyze_session.py`.)
+12. **Watchdog reboots and leaked secrets.** The one "unexplained" `rst:0xc` was the task
+    watchdog: on a reset TLS connection, SpotifyArduino's response loops spun ~11 s on core 0.
+    Their `yield()` never lets the lower-priority idle task run, so it missed the 5 s watchdog.
+    The watchdog is now 30 s (a real hang still reboots), and every boot logs
+    `[boot] reset reason: …`. A 12 s busy-spin injected into the network task no longer
+    resets the board. The same capture showed the library prints its token request on every
+    refresh — refresh token, client id and client secret — because it hard-codes
+    `SPOTIFY_DEBUG`; `tools/patch_spotify_lib.py` (a pre-build script) turns it off.
+    Smaller fixes from the review backlog: failed playlist-name lookups retry after 60 s
+    (`util/ctxcache`); Pokémon whose walk sheet can never work (404, too big, too few rows)
+    are remembered for the session instead of re-downloaded on every pick (`util/dexset`);
+    the walk-sheet decode stops after the rows it needs; long local-file URIs keep a hash
+    so they stay distinct (`txt::copyId`); the font bounds check can't wrap around on 32-bit;
+    alloc-fail counters are atomic and in IRAM; `[mem]` lines show the network task's free
+    stack (lowest seen: 3.7 KB of 10 KB).
 
 ## Credits
 

@@ -39,8 +39,27 @@ if mem:
     print("\n== byte-addressable RAM ==\nfree min=%d max=%d  largest min=%d max=%d" % (
         min(a for a, _ in mem), max(a for a, _ in mem), min(b for _, b in mem), max(b for _, b in mem)))
 
+stack = [int(m.group(1)) for _, s in lines for m in [re.search(r"\[mem\].*stackfree=(\d+)", s)] if m]
+if stack:
+    print("net task stack free: min=%d B" % min(stack))
+
+# Failed allocations are counted on the device and reported (then reset) in "[mem] ...
+# allocfail=N (last <size> B ...)". Older builds printed one "[allocfail]" line each instead.
+# 1512 B is a WiFi/lwIP receive buffer (a dropped packet, resent by TCP); anything else is
+# worth a look. Counting only "[allocfail]" lines once reported 0 for sessions with hundreds.
+fails = collections.Counter()
+for _, s in lines:
+    m = re.search(r"allocfail=(\d+) \(last (\d+) B", s)
+    if m:
+        fails["WiFi RX 1512 B" if m.group(2) == "1512" else "other (last %s B)" % m.group(2)] += int(m.group(1))
+    elif re.search(r"\[allocfail\]", s):
+        fails["legacy [allocfail] lines"] += 1
+
 print("\n== failures ==")
-for name, pat in (("allocfail", r"\[allocfail\]"), ("TLS alloc -32512", "-32512"),
+for k, v in sorted(fails.items()):
+    print("%-18s %d" % ("alloc " + k, v))
+for name, pat in (("TLS alloc -32512", "-32512"),
                   ("poll HTTP -1", r"poll HTTP -1"), ("fetch errors", r"\[fetch\]"),
+                  ("watchdog", r"task_wdt"),
                   ("restarts", r"rst:|restarting"), ("deferred steps", r"\[mem\] defer")):
     print("%-18s %d" % (name, sum(1 for _, s in lines if re.search(pat, s))))

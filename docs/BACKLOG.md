@@ -7,8 +7,14 @@ Open items, not scheduled. Newest decisions first within each section.
 - **iPhone hotspot.** Saved as the second network in `src/config.h`; never connected yet.
   Needs "Maximize Compatibility" on (the ESP32 is 2.4 GHz only). Also exercises the
   half-dead link (WiFi up, no mobile data) path, which has never run on the board.
-- **One unexplained `rst:0xc`.** A single software reset on one early boot; never seen again,
-  including the 10-minute session. Watch for it in longer runs.
+
+## Investigate
+
+- **Dropped WiFi receive buffers.** ~4.7/s during a normal session (2 811 in 10 min), mostly
+  around track changes while art, lyrics and the walker download. TCP resends them and every
+  poll still succeeds, but each drop adds latency. Byte RAM shows 67 KB free / 34.8 KB largest
+  at log time, so the shortage is momentary (several TLS sessions + RX bursts). Ideas: fewer
+  concurrent TLS buffers, smaller TCP window, spacing the per-song downloads.
 
 ## Parked: SD card cache (not used)
 
@@ -23,22 +29,16 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
 - To test: FAT32 card in, power-cycle, look for `[cache] SD ready`, replay songs and compare
   `[net] walk` times; check `/pmd` and `/sprites` on a PC.
 
-## Code polish (deferred review minors)
+## Accepted as is
 
-- Log the network task's stack high-water mark (stack cut to 10 KB; peak seen 5.3 KB).
-- Make the alloc-fail hook counters atomic / IRAM-safe (diagnostics only).
-- 32-bit overflow in the `cjkfont` bounds checks (low risk: the font is generated at build time).
-- Walk sheets with fewer than 3 direction rows are treated as corrupt and re-downloaded on every
-  pick; oversized sheets have no "too big" marker.
-- `decodeRegion` keeps decoding after the rows it needs.
-- If WiFi only comes up after boot, the setup portal is skipped.
-- `trackUri[64]` can truncate long local-file URIs (identity collisions).
-- Heap churn: `g_lastLyric` is a `std::string`, `g_accessToken` is a `String`.
-- `resolveContext` caches the URI even when the lookup failed (playlist name stays "Playlist").
+- If WiFi only comes up after boot, the Spotify setup portal is skipped. Only matters for a
+  first-ever setup with no saved login; a reboot with WiFi up fixes it.
+- `g_accessToken` is an Arduino `String`, reassigned once an hour: negligible heap churn.
 
 ## Ideas
 
-- Car power: brownout behaviour on noisy USB during engine start.
+- Car power: brownout behaviour on noisy USB during engine start (`[boot] reset reason`
+  now says "brownout" if it happens).
 - Backlight auto-dim at night.
 - Touch controls (play/pause/skip).
 - Korean / emoji / Cyrillic lyrics (render blank today; spec non-goal).
