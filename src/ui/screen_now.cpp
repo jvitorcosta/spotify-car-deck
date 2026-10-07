@@ -3,6 +3,7 @@
 #include "battle.h"
 #include "icons.h"
 #include "status_sprite.h"
+#include "labels.h"
 #include "theme.h"
 #include "../util/text.h"
 #include "../util/textfit.h"
@@ -55,8 +56,9 @@ void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, g_cdX, CD_CY, frame, theme:
 
 void drawTopStrip(TFT_eSPI& t, const AppState& st) {
     topStrip(t);
-    shadowText(t, "NOW PLAYING", 6, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TL_DATUM);
-    g_cdX = 6 + t.textWidth("NOW PLAYING", 2) + 10;
+    const char* title = topTitle(st.isPlaying);
+    shadowText(t, title, 6, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TL_DATUM);
+    g_cdX = 6 + t.textWidth(title, 2) + 10;
     drawCdFrame(t, 0);
 
     String name = fitText(t, st.deviceName[0] ? st.deviceName : "device", 110, 2);

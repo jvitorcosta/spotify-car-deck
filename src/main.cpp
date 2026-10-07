@@ -112,8 +112,8 @@ void loop() {
 
         // top strip: redraw only when device / shuffle / repeat change
         char sig[96];
-        snprintf(sig, sizeof(sig), "%s|%s|%d|%d", st.deviceName, st.deviceType,
-                 (int)st.shuffle, st.repeat);
+        snprintf(sig, sizeof(sig), "%s|%s|%d|%d|%d", st.deviceName, st.deviceType,
+                 (int)st.shuffle, st.repeat, (int)st.isPlaying);
         if (strcmp(sig, g_topSig) != 0) {
             strcpy(g_topSig, sig);
             ui::drawTopStrip(tft, st);
