@@ -4,6 +4,7 @@
 #include "icons.h"
 #include "status_sprite.h"
 #include "labels.h"
+#include "textdraw.h"
 #include "theme.h"
 #include "../util/text.h"
 #include "../util/textfit.h"
@@ -37,21 +38,6 @@ NowButtons nowButtons() {
 
 static int g_cdX = 100;   // set by drawTopStrip from the title width
 
-// Fold UTF-8 accents to ASCII (fonts are ASCII-only), then truncate with an
-// ellipsis so the text fits within maxW pixels.
-static String fitText(TFT_eSPI& t, const char* s, int maxW, uint8_t font, bool upper = false) {
-    char folded[128];
-    txt::asciiFold(s, folded, sizeof(folded));
-    if (upper) for (char* p = folded; *p; ++p) *p = (char)toupper((unsigned char)*p);
-    String str = folded;
-    if (t.textWidth(str, font) <= maxW) return str;
-    while (str.length() > 1) {
-        str.remove(str.length() - 1);
-        if (t.textWidth(str + "...", font) <= maxW) break;
-    }
-    return str + "...";
-}
-
 void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, g_cdX, CD_CY, frame, theme::TOP_DARK); }
 
 void drawTopStrip(TFT_eSPI& t, const AppState& st) {
@@ -61,9 +47,8 @@ void drawTopStrip(TFT_eSPI& t, const AppState& st) {
     g_cdX = 6 + t.textWidth(title, 2) + 10;
     drawCdFrame(t, 0);
 
-    String name = fitText(t, st.deviceName[0] ? st.deviceName : "device", 110, 2);
-    int nameW = t.textWidth(name, 2);
-    shadowText(t, name.c_str(), 314, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TR_DATUM);
+    int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, 2, theme::BOX_FILL,
+                         theme::BOX_BORDER, TR_DATUM, 110);
     int devX = 314 - nameW - 4 - icons::SIZE;
     drawIcon(t, icons::forDevice(st.deviceType), devX, 4, theme::BOX_FILL, theme::TOP_DARK);
     int repX = devX - 18, shufX = repX - 16;
@@ -140,23 +125,25 @@ void resetLyricArea() { g_lastLyric = "\x01"; }
 
 void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
     char folded[160];
-    txt::asciiFold(currentLine ? currentLine : "", folded, sizeof(folded));
+    txt::Mark marks[160];
+    size_t n = txt::foldMarks(currentLine ? currentLine : "", folded, marks, sizeof(folded));
     if (g_lastLyric == folded) return;
     g_lastLyric = folded;
 
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
     t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
-    if (!folded[0]) return;
+    if (!n) return;
     drawIcon(t, icons::Icon::Note, ix + 2, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
     drawIcon(t, icons::Icon::Note, ix + iw - 14, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
     const int textW = iw - 2 * 18;
     textfit::TwoLines l = textfit::wrapTwo(folded, textW, tftWidth2, &t);
     int cx = DLG_X + DLG_W / 2;
     if (l.b.empty()) {
-        shadowText(t, l.a.c_str(), cx, DLG_Y + 20, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawFolded(t, l.a.c_str(), marks, n, cx, DLG_Y + 20, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
     } else {
-        shadowText(t, l.a.c_str(), cx, DLG_Y + 12, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
-        shadowText(t, l.b.c_str(), cx, DLG_Y + 29, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawFolded(t, l.a.c_str(), marks, l.a.size(), cx, DLG_Y + 12, 2, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawFolded(t, l.b.c_str(), marks + l.bStart, l.bKeep, cx, DLG_Y + 29, 2, theme::TEXT,
+                   theme::DLG_SHADOW, MC_DATUM);
     }
 }
 
@@ -190,24 +177,22 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     // info box (opponent-style, slanted right end)
     battleBox(t, INFO_X, INFO_Y, INFO_W, INFO_H, Tab::Right);
     const int TW = INFO_W - 26;
-    shadowText(t, fitText(t, st.trackName[0] ? st.trackName : "Track title", TW, 2, true).c_str(),
-               INFO_X + 8, INFO_Y + 8, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
-    shadowText(t, fitText(t, st.artist[0] ? st.artist : "Artist", TW, 2).c_str(),
-               INFO_X + 8, INFO_Y + 32, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
-    char from[80];
+    drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 8, 2,
+             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
+    drawText(t, st.artist[0] ? st.artist : "Artist", INFO_X + 8, INFO_Y + 32, 2,
+             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
+    char from[96];
     snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
-    shadowText(t, fitText(t, from, TW, 2).c_str(),
-               INFO_X + 8, INFO_Y + 58, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+    drawText(t, from, INFO_X + 8, INFO_Y + 58, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
 
     // status box (player-style, slanted left end): name + No., HP time, walker, bars
     battleBox(t, STAT_X, STAT_Y, STAT_W, STAT_H, Tab::Left);
-    String nm = fitText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 130, 2, true);
-    // Dark battle-text grey: light type colours (grass, electric...) washed out on cream.
-    shadowText(t, nm.c_str(), 24, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", 24, 129, 2, theme::TEXT,
+                       theme::TEXT_SHADOW, TL_DATUM, 130, true);
     if (st.pokedexNum > 0) {
         char no[12];
         snprintf(no, sizeof(no), "No.%04d", st.pokedexNum);
-        shadowText(t, no, 24 + t.textWidth(nm, 2) + 6, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+        shadowText(t, no, 24 + nmW + 6, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
     }
     drawProgressRegion(t, st);
 

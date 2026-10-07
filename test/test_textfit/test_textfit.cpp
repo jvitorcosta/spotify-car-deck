@@ -36,6 +36,17 @@ void test_empty_is_empty() {
     TEST_ASSERT_EQUAL_STRING("", t.a.c_str());
     TEST_ASSERT_EQUAL_STRING("", t.b.c_str());
 }
+void test_offsets_for_marks() {
+    textfit::TwoLines t = textfit::wrapTwo("and I said hey what is going on", 120, w6, nullptr);
+    TEST_ASSERT_EQUAL_INT(20, (int)t.bStart);              // "is going on" starts at index 20
+    TEST_ASSERT_EQUAL_INT((int)t.b.size(), (int)t.bKeep);  // no ellipsis
+    textfit::TwoLines e = textfit::wrapTwo(
+        "one two three four five six seven eight nine ten eleven", 60, w6, nullptr);
+    TEST_ASSERT_EQUAL_INT(8, (int)e.bStart);               // after "one two "
+    TEST_ASSERT_EQUAL_INT((int)e.b.size() - 3, (int)e.bKeep);
+    textfit::TwoLines s = textfit::wrapTwo("short", 60, w6, nullptr);
+    TEST_ASSERT_EQUAL_INT(0, (int)s.bKeep);
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_short_line_stays_single);
@@ -43,5 +54,6 @@ int main(int, char**) {
     RUN_TEST(test_overlong_second_line_gets_ellipsis);
     RUN_TEST(test_no_space_hard_splits);
     RUN_TEST(test_empty_is_empty);
+    RUN_TEST(test_offsets_for_marks);
     return UNITY_END();
 }

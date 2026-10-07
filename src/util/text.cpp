@@ -30,17 +30,41 @@ static const char* foldLatin1(unsigned int cp) {
     }
 }
 
-void asciiFold(const char* src, char* dst, size_t n) {
+// Accent of a Latin-1 letter (U+00C0..U+00FF).
+static Mark markLatin1(unsigned int cp) {
+    switch (cp) {
+        case 0xC0: case 0xC8: case 0xCC: case 0xD2: case 0xD9:
+        case 0xE0: case 0xE8: case 0xEC: case 0xF2: case 0xF9: return Mark::Grave;
+        case 0xC1: case 0xC9: case 0xCD: case 0xD3: case 0xDA: case 0xDD:
+        case 0xE1: case 0xE9: case 0xED: case 0xF3: case 0xFA: case 0xFD: return Mark::Acute;
+        case 0xC2: case 0xCA: case 0xCE: case 0xD4: case 0xDB:
+        case 0xE2: case 0xEA: case 0xEE: case 0xF4: case 0xFB: return Mark::Circumflex;
+        case 0xC3: case 0xD1: case 0xD5: case 0xE3: case 0xF1: case 0xF5: return Mark::Tilde;
+        case 0xC4: case 0xCB: case 0xCF: case 0xD6: case 0xDC:
+        case 0xE4: case 0xEB: case 0xEF: case 0xF6: case 0xFC: case 0xFF: return Mark::Diaeresis;
+        case 0xC5: case 0xE5: return Mark::Ring;
+        case 0xC7: case 0xE7: return Mark::Cedilla;
+        default: return Mark::None;
+    }
+}
+
+size_t foldMarks(const char* src, char* dst, Mark* marks, size_t n) {
     size_t o = 0;
-    if (n == 0) return;
-    if (!src) { dst[0] = '\0'; return; }
+    if (n == 0) return 0;
+    if (!src) { dst[0] = '\0'; return 0; }
     for (size_t i = 0; src[i] && o + 1 < n; ) {
         unsigned char c = (unsigned char)src[i];
         if (c < 0x80) {                         // plain ASCII
+            if (marks) marks[o] = Mark::None;
             dst[o++] = (char)c; ++i;
         } else if (c == 0xC3 && src[i + 1]) {   // U+00C0..00FF accented letters
             unsigned int cp = 0xC0 + ((unsigned char)src[i + 1] - 0x80);
-            for (const char* r = foldLatin1(cp); *r && o + 1 < n; ++r) dst[o++] = *r;
+            const char* r = foldLatin1(cp);
+            Mark m = (r[0] && !r[1]) ? markLatin1(cp) : Mark::None;   // only 1:1 folds keep it
+            for (; *r && o + 1 < n; ++r) {
+                if (marks) marks[o] = m;
+                dst[o++] = *r;
+            }
             i += 2;
         } else if (c == 0xC2 && src[i + 1]) {   // U+0080..00BF symbols -> drop
             i += 2;
@@ -50,6 +74,9 @@ void asciiFold(const char* src, char* dst, size_t n) {
         else { ++i; }
     }
     dst[o] = '\0';
+    return o;
 }
+
+void asciiFold(const char* src, char* dst, size_t n) { foldMarks(src, dst, nullptr, n); }
 
 }
