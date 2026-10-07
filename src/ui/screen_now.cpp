@@ -2,6 +2,7 @@
 #include <string>
 #include "battle.h"
 #include "icons.h"
+#include "status_sprite.h"
 #include "theme.h"
 #include "../util/text.h"
 #include "../util/textfit.h"
@@ -160,8 +161,20 @@ void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
 void drawOffline(TFT_eSPI& t, const char* msg) {
     background(t);
     topStrip(t);
-    dialogueBox(t, 20, 96, 280, 48);
-    shadowText(t, msg, 160, 120, 4, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+    // Battle platform + the bundled Pokemon (no network needed), 2x nearest-neighbour.
+    const int cx = 160, feetY = 136;
+    t.fillEllipse(cx, feetY, 60, 12, theme::HORIZON);
+    t.drawEllipse(cx, feetY, 60, 12, theme::BOX_SHADOW);
+    int w = status_sprite::width(), h = status_sprite::height();
+    int s = (h * 2 <= 110 && w * 2 <= 200) ? 2 : 1;
+    int x0 = cx - w * s / 2, y0 = feetY - 4 - h * s;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            uint16_t c;
+            if (status_sprite::pixel(x, y, &c)) t.fillRect(x0 + x * s, y0 + y * s, s, s, c);
+        }
+    dialogueBox(t, 20, 160, 280, 48);
+    shadowText(t, msg, 160, 184, 4, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
 }
 
 void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
