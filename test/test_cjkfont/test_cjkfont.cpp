@@ -57,9 +57,24 @@ void test_rejects_bad_blobs() {
     int w;
     TEST_ASSERT_NULL(f.glyph(0x3042, &w));                             // closed font: no glyphs
 }
+// A range whose bitmap size overflows 32 bits must be rejected on a 32-bit target, where
+// (count * bytesPerGlyph) used to wrap to a small number and pass the bounds check.
+void test_rejects_range_whose_size_overflows_32_bits() {
+    std::vector<uint8_t> b = makeBlob();
+    // r0: 0x0 .. 0x08000000 at 16 px -> (2^27 + 1) * 32 B = 2^32 + 32 B (wraps to 32 on 32-bit).
+    b[6] = 0; b[7] = 0; b[8] = 0; b[9] = 0;
+    b[10] = 0; b[11] = 0; b[12] = 0; b[13] = 0x08;
+    cjkfont::Font f;
+    TEST_ASSERT_FALSE(f.open(b.data(), b.size()));
+    TEST_ASSERT_TRUE(cjkfont::rangeFits(0, 0x08000001u, 32, 0x100000u) == false);
+    TEST_ASSERT_TRUE(cjkfont::rangeFits(0xFFFFFFF0u, 1, 32, 0x100000u) == false);   // offset past end
+    TEST_ASSERT_TRUE(cjkfont::rangeFits(64, 2, 32, 128));                             // exact fit
+    TEST_ASSERT_FALSE(cjkfont::rangeFits(64, 3, 32, 128));
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_open_and_lookup);
+    RUN_TEST(test_rejects_range_whose_size_overflows_32_bits);
     RUN_TEST(test_missing_codepoints);
     RUN_TEST(test_rejects_bad_blobs);
     return UNITY_END();

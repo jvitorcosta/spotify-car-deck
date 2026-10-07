@@ -4,6 +4,10 @@
 // Reader for the embedded Unifont CJK blob (tools/gen_cjk_font.py). PURE, host-tested.
 // The blob stays in flash; lookups are a binary search over its few ranges + arithmetic.
 namespace cjkfont {
+// True when `count` glyphs of `perGlyph` bytes starting at `offset` lie inside a `len`-byte
+// blob. 32-bit arguments on purpose: that is size_t on the ESP32, where the old
+// offset + count * perGlyph check wrapped around and accepted a huge range.
+bool rangeFits(uint32_t offset, uint32_t count, uint32_t perGlyph, uint32_t len);
 class Font {
 public:
     // Validates the "UFNT" header, range order and bounds. False leaves the font empty.
