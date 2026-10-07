@@ -23,6 +23,7 @@ hotspot.
   animdata, walkanim, walkrect, textfit, walk, interp, lrc, text, dex, netplan.
 - Regenerate the bundled Pokédex: `python tools/gen_dex.py`; the status-screen sprite:
   `python tools/gen_status_sprite.py [dex]`.
+- Regenerate the CJK font: `python tools/gen_cjk_font.py [unifont_all-*.hex.gz]`.
 - Measure a session: `python tools/capture_serial.py COM11 600 session.log`, then
   `python tools/analyze_session.py session.log` (step timings, per-track arrival times,
   byte RAM, failed allocations, TLS errors, restarts).
@@ -125,6 +126,16 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
 10. **UI additions:** bundled Pikachu on the status screens (`tools/gen_status_sprite.py`),
     "PAUSED" in the top strip, Portuguese/Latin-1 accents drawn as pixel marks over the ASCII
     font (same widths, so fitting and wrapping are unchanged).
+11. **Japanese / Chinese text.** Kana and hanzi/kanji lyric lines rendered empty: the fonts are
+    ASCII-only and the accent folding dropped every 3-byte UTF-8 character. GNU Unifont glyphs
+    (16 px tall, like font 2) for kana, CJK punctuation, half/full-width forms and all CJK
+    Unified Ideographs — 21 504 glyphs, **686 KB** — are embedded in flash
+    (`tools/gen_cjk_font.py` → `data/cjk16.bin`, `board_build.embed_files`) and read on demand:
+    **0 bytes of RAM for the font** (flash 42 % → 57.6 %). Text is decoded into glyph runs
+    (font-2 ASCII + accent marks, Unifont CJK), measured exactly and wrapped between CJK
+    characters (no spaces). The lyric buffers cost ~1.7 KB of byte RAM.
+    10-minute session afterwards: 0 failed allocations, 0 TLS errors, 0 failed polls, 0 restarts;
+    byte RAM flat at 66–68 KB free / 34.8 KB largest block.
 
 ## Credits
 
