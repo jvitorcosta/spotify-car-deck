@@ -4,8 +4,8 @@
 
 namespace img {
 
-static PNG g_png;
-PNG& decoder() { return g_png; }
+static PNG s_png;
+PNG& decoder() { return s_png; }
 
 bool loadSpriteInto(int dex, const char* url, uint8_t* buf, size_t cap, size_t* outLen,
                     bool* fromCache) {

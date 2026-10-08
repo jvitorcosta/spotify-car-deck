@@ -10,7 +10,7 @@ Open items, not scheduled. Newest decisions first within each section.
 
 ## Investigate
 
-- **`g_accessToken` heap placement** (`src/spotify/client.cpp`). A long-lived heap String
+- **`s_accessToken` heap placement** (`src/spotify/client.cpp`). A long-lived heap String
   created right after a TLS session: a small change in temporary allocations before it (a
   `refreshToken()` helper, tried in the 2026-10-08 cleanup) moved it into the middle of the free
   heap and cut the largest block from 34.8 KB to 17-21 KB, below `TLS_NEED`, deferring walker
@@ -60,7 +60,8 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
 
 - If WiFi only comes up after boot, the Spotify setup portal is skipped. Only matters for a
   first-ever setup with no saved login; a reboot with WiFi up fixes it.
-- `g_accessToken` is an Arduino `String`, reassigned once an hour: negligible heap churn.
+- `s_accessToken` is an Arduino `String`, reassigned once an hour: the churn is negligible, but
+  its heap placement is not (see "Investigate").
 - Backlight stays at full brightness (decided 2026-10-07): no auto-dim from the CYD light
   sensor (GPIO 34), even though it was suggested for night glare.
 

@@ -9,22 +9,22 @@
 
 namespace art {
 
-static uint16_t* g_bmp = nullptr;
-static uint8_t* g_work = nullptr;
+static uint16_t* s_bmp = nullptr;
+static uint8_t* s_work = nullptr;
 static WiFiClient* s_in = nullptr;
 static uint32_t s_deadline = 0;
 static artmap::Map s_map;
 
 bool begin() {
-    if (!g_bmp) g_bmp = (uint16_t*)malloc(W * H * 2);
-    if (!g_work) g_work = (uint8_t*)malloc(TJPGD_WORKSPACE_SIZE);
-    if (g_bmp) memset(g_bmp, 0, W * H * 2);
-    bool ok = g_bmp && g_work;
+    if (!s_bmp) s_bmp = (uint16_t*)malloc(W * H * 2);
+    if (!s_work) s_work = (uint8_t*)malloc(TJPGD_WORKSPACE_SIZE);
+    if (s_bmp) memset(s_bmp, 0, W * H * 2);
+    bool ok = s_bmp && s_work;
     if (!ok) Serial.println("[art] no heap for bitmap");
     return ok;
 }
 
-const uint16_t* bitmap() { return g_bmp; }
+const uint16_t* bitmap() { return s_bmp; }
 
 // tjpgd input: read (or skip, when buf == nullptr) up to len bytes from the HTTP stream.
 static size_t jdIn(JDEC*, uint8_t* buf, size_t len) {
@@ -58,14 +58,14 @@ static int jdOut(JDEC*, void* block, JRECT* r) {
             int sx = artmap::srcX(s_map, ox);
             if (sx < r->left || sx > r->right) continue;
             uint16_t c = px[(sy - r->top) * bw + (sx - r->left)];
-            g_bmp[oy * W + ox] = theme::be(c);   // store big-endian
+            s_bmp[oy * W + ox] = theme::be(c);   // store big-endian
         }
     }
     return 1;
 }
 
 bool fetch(const char* url) {
-    if (!g_bmp || !g_work || !url || !url[0]) return false;
+    if (!s_bmp || !s_work || !url || !url[0]) return false;
     char plain[200];
     artmap::plainHttpUrl(url, plain, sizeof(plain));
     WiFiClient client;
@@ -85,7 +85,7 @@ bool fetch(const char* url) {
     // (scrambled/"inverted" colours). Native output here; jdOut does the one swap.
     JDEC jd = {};
     jd.swap = 0;
-    JRESULT rc = jd_prepare(&jd, jdIn, g_work, TJPGD_WORKSPACE_SIZE, nullptr);
+    JRESULT rc = jd_prepare(&jd, jdIn, s_work, TJPGD_WORKSPACE_SIZE, nullptr);
     if (rc == JDR_OK) {
         int s = artmap::pickScale(jd.width, jd.height, W);
         s_map = artmap::cover(jd.width >> s, jd.height >> s, W, H);

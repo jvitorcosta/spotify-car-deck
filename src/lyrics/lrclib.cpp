@@ -7,8 +7,8 @@
 
 namespace lyricsvc {
 
-static lyricbuf::Lyrics g_arena;   // ~5.6 KB, static: allocated once
-lyricbuf::Lyrics& arena() { return g_arena; }
+static lyricbuf::Lyrics s_arena;   // ~5.6 KB, static: allocated once
+lyricbuf::Lyrics& arena() { return s_arena; }
 
 // Query value via the shared, bounded encoder (one String instead of one per byte). AppState
 // fields are < 96 bytes, so the encoded form (<= 3 bytes each) always fits.

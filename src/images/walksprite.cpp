@@ -7,7 +7,7 @@
 #include "../util/walkanim.h"
 #include "../util/dexset.h"
 
-// g_dur holds one entry per parsed frame: the two caps must stay equal.
+// s_dur holds one entry per parsed frame: the two caps must stay equal.
 static_assert(walk::MAX_FRAMES == animdata::MAX_FRAMES, "walk and animdata frame caps differ");
 
 namespace walk {
@@ -16,38 +16,38 @@ namespace walk {
 // Pools and the download scratch are allocated once in begin(), before WiFi; loaders never
 // malloc (README "Design & performance history": per-download mallocs with TLS open
 // exhausted byte-addressable RAM).
-static uint8_t* g_pool[2] = {nullptr, nullptr};
-static uint8_t* g_scratch = nullptr;
-static Info g_info[2] = {};
-static uint16_t g_dur[2][MAX_FRAMES];
-static int g_dex[2] = {0, 0};
-static int g_active = 0;
-static inline int staged() { return 1 - g_active; }
+static uint8_t* s_pool[2] = {nullptr, nullptr};
+static uint8_t* s_scratch = nullptr;
+static Info s_info[2] = {};
+static uint16_t s_dur[2][MAX_FRAMES];
+static int s_dex[2] = {0, 0};
+static int s_active = 0;
+static inline int staged() { return 1 - s_active; }
 
 bool begin() {
     for (int i = 0; i < 2; ++i)
-        if (!g_pool[i]) g_pool[i] = (uint8_t*)malloc(CAP_BYTES);   // malloc is 4-byte aligned
-    if (!g_scratch) g_scratch = (uint8_t*)malloc(SCRATCH);
-    bool ok = g_pool[0] && g_pool[1] && g_scratch;
+        if (!s_pool[i]) s_pool[i] = (uint8_t*)malloc(CAP_BYTES);   // malloc is 4-byte aligned
+    if (!s_scratch) s_scratch = (uint8_t*)malloc(SCRATCH);
+    bool ok = s_pool[0] && s_pool[1] && s_scratch;
     if (!ok) Serial.println("[walk] no heap for frame pools");
     return ok;
 }
 
 static uint16_t* pixelsAt(int s, int f) {
-    return (uint16_t*)g_pool[s] + f * g_info[s].w * g_info[s].h;
+    return (uint16_t*)s_pool[s] + f * s_info[s].w * s_info[s].h;
 }
 static uint8_t* maskAt(int s, int f) {
-    return g_pool[s] + g_info[s].frames * g_info[s].w * g_info[s].h * 2 + f * g_info[s].w * g_info[s].h;
+    return s_pool[s] + s_info[s].frames * s_info[s].w * s_info[s].h * 2 + f * s_info[s].w * s_info[s].h;
 }
 
-const Info& info() { return g_info[g_active]; }
-const uint16_t* pixels(int f) { return pixelsAt(g_active, f); }
-const uint8_t* mask(int f) { return maskAt(g_active, f); }
+const Info& info() { return s_info[s_active]; }
+const uint16_t* pixels(int f) { return pixelsAt(s_active, f); }
+const uint8_t* mask(int f) { return maskAt(s_active, f); }
 uint16_t durationMs(int f) {
-    return (f >= 0 && f < g_info[g_active].frames) ? g_dur[g_active][f] : 0;
+    return (f >= 0 && f < s_info[s_active].frames) ? s_dur[s_active][f] : 0;
 }
-int stagedDex() { return g_info[staged()].ready ? g_dex[staged()] : 0; }
-void promote() { g_active = staged(); }
+int stagedDex() { return s_info[staged()].ready ? s_dex[staged()] : 0; }
+void promote() { s_active = staged(); }
 
 static inline bool bitAt(const uint8_t* bits, int x) { return (bits[x >> 3] >> (7 - (x & 7))) & 1; }
 
@@ -132,7 +132,7 @@ static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW
             s_k = walkanim::keepEvery(s_frames, s_fit.w, s_fit.h, CAP_BYTES);
             if (s_k == 0) return Res::Unsupported;
             s_kept = walkanim::keptCount(s_frames, s_k);
-            g_info[s_slot] = {false, pmd, s_fit.w, s_fit.h, s_kept};   // layout for pass 2
+            s_info[s_slot] = {false, pmd, s_fit.w, s_fit.h, s_kept};   // layout for pass 2
         }
     }
     return Res::Ok;
@@ -146,9 +146,9 @@ static constexpr int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, 
 static bool getCached(const String& path, const String& url, size_t* n, int* code,
                       bool partial = false) {
     *code = 0;
-    if (cache::readInto(path, g_scratch, SCRATCH, n)) return true;
-    if (!fetch::httpsGetInto(url.c_str(), g_scratch, SCRATCH, n, code, partial)) return false;
-    cache::savePath(path, g_scratch, *n);
+    if (cache::readInto(path, s_scratch, SCRATCH, n)) return true;
+    if (!fetch::httpsGetInto(url.c_str(), s_scratch, SCRATCH, n, code, partial)) return false;
+    cache::savePath(path, s_scratch, *n);
     return true;
 }
 
@@ -159,9 +159,9 @@ static dexset::Set s_noPmd;
 
 bool loadPmd(int dex) {
     s_slot = staged();
-    g_info[s_slot].ready = false;
-    g_dex[s_slot] = 0;
-    if (dex < 1 || !g_pool[s_slot] || !g_scratch) return false;
+    s_info[s_slot].ready = false;
+    s_dex[s_slot] = 0;
+    if (dex < 1 || !s_pool[s_slot] || !s_scratch) return false;
     if (s_noPmd.has(dex)) {
         Serial.printf("[walk] fallback (#%d has no usable PMD sheet)\n", dex);
         return false;
@@ -178,7 +178,7 @@ bool loadPmd(int dex) {
         Serial.printf("[walk] fallback (xml http %d)\n", code);
         return false;
     }
-    animdata::WalkAnim a = animdata::parseWalk((const char*)g_scratch);   // scratch is free after this
+    animdata::WalkAnim a = animdata::parseWalk((const char*)s_scratch);   // scratch is free after this
     if (!a.ok) {
         cache::removePath(xmlPath);
         s_noPmd.add(dex);
@@ -190,7 +190,7 @@ bool loadPmd(int dex) {
         Serial.printf("[walk] fallback (png http %d or > %d B)\n", code, SCRATCH);
         return false;
     }
-    Res r = decodeRegion(g_scratch, n, DIR_RIGHT * a.frameH, a.frameH, a.frameW, a.frames, true);
+    Res r = decodeRegion(s_scratch, n, DIR_RIGHT * a.frameH, a.frameH, a.frameW, a.frames, true);
     if (r != Res::Ok) {                                    // slot stays not-ready (cleared on entry)
         if (r == Res::Corrupt) {   // corrupt: drop the cache so the next play re-downloads
             cache::removePath(xmlPath);
@@ -201,36 +201,36 @@ bool loadPmd(int dex) {
         Serial.printf("[walk] fallback (sheet %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");
         return false;
     }
-    walkanim::mergedDurationsMs(a.ticks, s_frames, s_k, g_dur[s_slot]);
-    g_info[s_slot].ready = true;
-    g_dex[s_slot] = dex;
-    Serial.printf("[walk] pmd #%d %d frames %dx%d (k=%d)\n", dex, g_info[s_slot].frames,
-                  g_info[s_slot].w, g_info[s_slot].h, s_k);
+    walkanim::mergedDurationsMs(a.ticks, s_frames, s_k, s_dur[s_slot]);
+    s_info[s_slot].ready = true;
+    s_dex[s_slot] = dex;
+    Serial.printf("[walk] pmd #%d %d frames %dx%d (k=%d)\n", dex, s_info[s_slot].frames,
+                  s_info[s_slot].w, s_info[s_slot].h, s_k);
     return true;
 }
 
 // ---------------------------------------------------------------- fallback
 bool loadFallback(const char* spriteUrl, int dex) {
     s_slot = staged();
-    g_info[s_slot].ready = false;
-    g_dex[s_slot] = 0;
-    if (!g_pool[s_slot] || !g_scratch) return false;
+    s_info[s_slot].ready = false;
+    s_dex[s_slot] = 0;
+    if (!s_pool[s_slot] || !s_scratch) return false;
     size_t n = 0;
     bool fromCache = false;
-    if (!img::loadSpriteInto(dex, spriteUrl, g_scratch, SCRATCH, &n, &fromCache)) {
+    if (!img::loadSpriteInto(dex, spriteUrl, s_scratch, SCRATCH, &n, &fromCache)) {
         Serial.println("[walk] no sprite");
         return false;
     }
-    Res r = decodeRegion(g_scratch, n, 0, 0, 0, 1, false);
+    Res r = decodeRegion(s_scratch, n, 0, 0, 0, 1, false);
     if (r != Res::Ok) {
         if (r == Res::Corrupt && fromCache) cache::removePath(cache::spritePath(dex));
         Serial.printf("[walk] no walker (sprite %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");
         return false;
     }
-    g_dur[s_slot][0] = 0;
-    g_info[s_slot].ready = true;
-    g_dex[s_slot] = dex;
-    Serial.printf("[walk] fallback #%d sprite %dx%d\n", dex, g_info[s_slot].w, g_info[s_slot].h);
+    s_dur[s_slot][0] = 0;
+    s_info[s_slot].ready = true;
+    s_dex[s_slot] = dex;
+    Serial.printf("[walk] fallback #%d sprite %dx%d\n", dex, s_info[s_slot].w, s_info[s_slot].h);
     return true;
 }
 

@@ -10,9 +10,9 @@
 #include "../util/text.h"
 
 namespace spclient {
-static WiFiClientSecure client;
-static SpotifyArduino* sp = nullptr;
-static AppState* target = nullptr;
+static WiFiClientSecure s_client;
+static SpotifyArduino* s_sp = nullptr;
+static AppState* s_target = nullptr;
 
 static void copyStr(char* dst, const char* src, size_t n) {
     if (!src) { dst[0] = '\0'; return; }
@@ -20,7 +20,7 @@ static void copyStr(char* dst, const char* src, size_t n) {
 }
 
 static void onPlaying(CurrentlyPlaying cp) {
-    AppState& st = *target;
+    AppState& st = *s_target;
     // Ads (free accounts) and unknown items: SpotifyArduino leaves trackName, trackUri,
     // artists, albumName and the images uninitialised (it only fills them for track/episode),
     // so none of them may be read. Show the "Nothing playing" screen until music resumes; the
@@ -49,17 +49,17 @@ static void onPlaying(CurrentlyPlaying cp) {
 }
 
 void begin() {
-    netcfg::secure(client);
-    client.setTimeout(8);            // seconds: TCP connect/read (default 30 s)
+    netcfg::secure(s_client);
+    s_client.setTimeout(8);            // seconds: TCP connect/read (default 30 s)
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;   // PC-obtained token from config.h
     // NOTE: SpotifyArduino's ctor calls setRefreshToken(), which reads its _refreshToken
     // member before initializing it. Heap `new` leaves that member as garbage (not NULL),
     // so its `strlen(_refreshToken)` dereferences garbage and crashes. A function-local
     // static has zero-initialized storage, so _refreshToken starts as NULL -> safe.
-    static SpotifyArduino instance(client, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, rt.c_str());
-    sp = &instance;
-    if (sp->refreshAccessToken()) Serial.println("[spotify] access token OK");
+    static SpotifyArduino instance(s_client, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, rt.c_str());
+    s_sp = &instance;
+    if (s_sp->refreshAccessToken()) Serial.println("[spotify] access token OK");
     else Serial.println("[spotify] refreshAccessToken FAILED");
 }
 
@@ -71,11 +71,11 @@ void begin() {
 // through a helper (one more temporary String) moved it into the middle of the free heap and
 // cut the largest block from 34.8 to ~17-21 KB, below TLS_NEED (2026-10-08 cleanup, measured
 // on the board). Keep the token code below as is, or move this to a fixed buffer.
-static String g_accessToken;
-static uint32_t g_tokenExpiry = 0;
+static String s_accessToken;
+static uint32_t s_tokenExpiry = 0;
 
 static bool ensureAccessToken() {
-    if (!g_accessToken.isEmpty() && (int32_t)(g_tokenExpiry - millis()) > 0) return true;
+    if (!s_accessToken.isEmpty() && (int32_t)(s_tokenExpiry - millis()) > 0) return true;
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;
     if (rt.isEmpty()) return false;
@@ -94,8 +94,8 @@ static bool ensureAccessToken() {
     DeserializationError e = deserializeJson(doc, https.getString());
     https.end();
     if (e || !doc["access_token"].is<const char*>()) return false;
-    g_accessToken = String("Bearer ") + (const char*)doc["access_token"];
-    g_tokenExpiry = millis() + 50UL * 60 * 1000;   // tokens last ~1h
+    s_accessToken = String("Bearer ") + (const char*)doc["access_token"];
+    s_tokenExpiry = millis() + 50UL * 60 * 1000;   // tokens last ~1h
     return true;
 }
 
@@ -123,12 +123,12 @@ static bool resolveContext(const char* uri, char* out, size_t n) {
     https.setTimeout(netcfg::HTTP_TIMEOUT_MS);
     String url = "https://api.spotify.com/v1/" + String(endpoint) + "/" + id + "?fields=name";
     if (!https.begin(c, url)) return false;
-    https.addHeader("Authorization", g_accessToken);
+    https.addHeader("Authorization", s_accessToken);
     int rc = https.GET();
     // 401: the cached access token was revoked or expired early. Expire it now so the next
     // lookup refreshes it, instead of failing until the 50-minute expiry. (The timestamp, not
-    // the String: g_accessToken's heap block stays where it is.)
-    if (rc == 401) g_tokenExpiry = millis();
+    // the String: s_accessToken's heap block stays where it is.)
+    if (rc == 401) s_tokenExpiry = millis();
     bool ok = rc == 403 || rc == 404;
     if (rc == 200) {
         JsonDocument d;
@@ -142,9 +142,9 @@ static bool resolveContext(const char* uri, char* out, size_t n) {
 }
 
 void poll(AppState& st) {
-    if (!sp) return;
-    target = &st;
-    int code = sp->getCurrentlyPlaying(onPlaying, SPOTIFY_MARKET);
+    if (!s_sp) return;
+    s_target = &st;
+    int code = s_sp->getCurrentlyPlaying(onPlaying, SPOTIFY_MARKET);
     if (code == 200) {
         // st.context holds the raw context URI (set in onPlaying). Resolve it to
         // a human name once per context change (cached), done here — never inside
@@ -168,7 +168,7 @@ void poll(AppState& st) {
 }
 
 static void onPlayer(PlayerDetails pd) {
-    AppState& st = *target;
+    AppState& st = *s_target;
     copyStr(st.deviceName, pd.device.name, sizeof(st.deviceName));
     copyStr(st.deviceType, pd.device.type, sizeof(st.deviceType));
     st.volume  = pd.device.volumePercent;
@@ -180,8 +180,8 @@ static void onPlayer(PlayerDetails pd) {
 }
 
 void pollPlayerDetails(AppState& st) {
-    if (!sp) return;
-    target = &st;
-    sp->getPlayerDetails(onPlayer, SPOTIFY_MARKET);
+    if (!s_sp) return;
+    s_target = &st;
+    s_sp->getPlayerDetails(onPlayer, SPOTIFY_MARKET);
 }
 }

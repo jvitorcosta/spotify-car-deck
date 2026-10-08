@@ -5,20 +5,20 @@
 
 namespace cache {
 
-static SPIClass sdSPI(VSPI);
-static bool ready = false;
+static SPIClass s_sdSPI(VSPI);
+static bool s_ready = false;
 
 bool begin() {
-    sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    ready = SD.begin(SD_CS, sdSPI);
-    if (ready && !SD.exists("/sprites")) SD.mkdir("/sprites");
-    if (ready && !SD.exists("/pmd")) SD.mkdir("/pmd");
-    Serial.printf("[cache] SD %s\n", ready ? "ready" : "unavailable");
-    return ready;
+    s_sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+    s_ready = SD.begin(SD_CS, s_sdSPI);
+    if (s_ready && !SD.exists("/sprites")) SD.mkdir("/sprites");
+    if (s_ready && !SD.exists("/pmd")) SD.mkdir("/pmd");
+    Serial.printf("[cache] SD %s\n", s_ready ? "ready" : "unavailable");
+    return s_ready;
 }
 
 bool savePath(const String& path, const uint8_t* data, size_t n) {
-    if (!ready) return false;
+    if (!s_ready) return false;
     fs::File f = SD.open(path, FILE_WRITE);
     if (!f) return false;
     size_t w = f.write(data, n);
@@ -29,7 +29,7 @@ bool savePath(const String& path, const uint8_t* data, size_t n) {
 
 bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen) {
     *outLen = 0;
-    if (!ready) return false;
+    if (!s_ready) return false;
     fs::File f = SD.open(path, FILE_READ);
     if (!f) return false;
     size_t n = f.size();
@@ -42,7 +42,7 @@ bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen) {
     return true;
 }
 
-void removePath(const String& path) { if (ready) SD.remove(path); }
+void removePath(const String& path) { if (s_ready) SD.remove(path); }
 
 String spritePath(int dex) { return "/sprites/" + String(dex) + ".png"; }
 bool save(int dex, const uint8_t* data, size_t n) { return savePath(spritePath(dex), data, n); }

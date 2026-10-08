@@ -3,7 +3,7 @@
 #include "../config.h"
 
 namespace net {
-static uint32_t lastCheck = 0;
+static uint32_t s_lastCheck = 0;
 constexpr uint32_t CONNECT_TRY_MS = 8000;   // per network in connectAny()
 constexpr uint32_t CHECK_MS = 5000;         // loop(): reconnect check period
 
@@ -31,8 +31,8 @@ bool isOnline() { return WiFi.status() == WL_CONNECTED; }
 String deviceIp() { return WiFi.localIP().toString(); }
 
 void loop() {
-    if (millis() - lastCheck < CHECK_MS) return;
-    lastCheck = millis();
+    if (millis() - s_lastCheck < CHECK_MS) return;
+    s_lastCheck = millis();
     if (!isOnline()) {
         Serial.println("[wifi] dropped, reconnecting...");
         connectAny();

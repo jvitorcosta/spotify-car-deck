@@ -43,7 +43,7 @@ static const char* resetReason() {
 
 // UI loop (core 1): draws only. All network/SD work runs in core/nettask on core 0 and
 // arrives through core/shared (README "Design & performance history").
-static TFT_eSPI tft = TFT_eSPI();
+static TFT_eSPI s_tft = TFT_eSPI();
 
 constexpr uint32_t STALE_MS = 20000;      // "No signal" once the last good poll is this old
 constexpr uint32_t CD_FRAME_MS = 160;     // spinning CD + Poke Ball, ~6 fps
@@ -54,17 +54,17 @@ constexpr uint32_t WALK_FRAME_MS = 120;   // walker ~8 fps
 // The art box and the decoded bitmap are the same 92x92 area (pushArtIfValid pushes it whole).
 static_assert(ui::ART_W == art::W && ui::ART_H == art::H, "art box and bitmap sizes differ");
 
-static char g_topSig[96] = "";                 // last drawn top-strip state
+static char s_topSig[96] = "";                 // last drawn top-strip state
 
 // Pushes the album-art bitmap if it is valid for the track on screen. Check and push happen
 // under one lock so the network task cannot start overwriting the bitmap in between.
 static void pushArtIfValid(uint32_t gen) {
     shared::Guard g;
     if (shared::artValidLocked(gen))
-        tft.pushImage(ui::ART_X, ui::ART_Y, art::W, art::H, art::bitmap());
+        s_tft.pushImage(ui::ART_X, ui::ART_Y, art::W, art::H, art::bitmap());
 }
 
-static bool g_notesDance = false;   // a timed lyric line is on screen (set by drawDialogue)
+static bool s_notesDance = false;   // a timed lyric line is on screen (set by drawDialogue)
 
 // Dialogue box for the track on screen: the lyric line, or a Pokemon-style status message
 // (searching / retrying / intro / no lyrics). The status age drives the FAIL -> IDLE switch.
@@ -83,8 +83,8 @@ static void drawDialogue(const AppState& view, uint32_t gen) {
     lyricmsg::In in{lv.status, now - since, view.progressMs, lv.firstLineMs, lv.line,
                     view.pokeName, gen};
     lyricmsg::compose(in, out);
-    ui::drawLyricArea(tft, out.text, out.notes);
-    g_notesDance = out.dance;
+    ui::drawLyricArea(s_tft, out.text, out.notes);
+    s_notesDance = out.dance;
 }
 
 void setup() {
@@ -104,23 +104,23 @@ void setup() {
                       ok ? "ok" : "missing", w);
     }
     cache::begin();
-    tft.init(); tft.invertDisplay(true); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.drawString("Connecting WiFi...", 10, 10, 2);
+    s_tft.init(); s_tft.invertDisplay(true); s_tft.setRotation(1); s_tft.fillScreen(TFT_BLACK);
+    s_tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    s_tft.drawString("Connecting WiFi...", 10, 10, 2);
 
     bool spotifyReady = false;
     if (net::connectAny()) {
         mem::log("boot+wifi");
-        tft.fillScreen(TFT_BLACK);
-        tft.drawString("Spotify auth...", 10, 10, 2);
+        s_tft.fillScreen(TFT_BLACK);
+        s_tft.drawString("Spotify auth...", 10, 10, 2);
         if (spauth::loadRefreshToken().isEmpty()) {
-            tft.drawString("Open http://" + net::deviceIp() + "/", 10, 40, 2);
+            s_tft.drawString("Open http://" + net::deviceIp() + "/", 10, 40, 2);
         }
         spauth::runSetupPortalIfNeeded();
         spclient::begin();
         spotifyReady = true;
     } else {
-        tft.drawString("WiFi not found - retrying...", 10, 40, 2);
+        s_tft.drawString("WiFi not found - retrying...", 10, 40, 2);
     }
     nettask::start(spotifyReady);   // always: it keeps retrying WiFi if the hotspot is late
 }
@@ -144,7 +144,7 @@ void loop() {
     static uint8_t shownGenre = genre::NONE;   // badge for the track on screen
     if (mode != 0) {
         if (lastMode != mode) {   // draw the status screen once (no flicker)
-            ui::drawOffline(tft, mode == 1 ? "No signal..." : "Nothing playing");
+            ui::drawOffline(s_tft, mode == 1 ? "No signal..." : "Nothing playing");
             lastMode = mode;
         }
     } else if (lastMode != 0 || st.trackGen != shownGen) {
@@ -159,8 +159,8 @@ void loop() {
         }
         uint8_t cached;   // a cached badge is posted with the track change: draw it with the title
         if (shared::takeGenre(shownGen, &cached)) shownGenre = cached;
-        ui::drawNow(tft, view, shownGenre);
-        g_topSig[0] = '\0';
+        ui::drawNow(s_tft, view, shownGenre);
+        s_topSig[0] = '\0';
         pushArtIfValid(shownGen);   // back from a status screen: same track's art is still valid
         drawDialogue(view, shownGen);
         mem::log("track");
@@ -171,7 +171,7 @@ void loop() {
         uint8_t g;
         if (shared::takeGenre(shownGen, &g)) {   // genre arrived (or was cached): artist row only
             shownGenre = g;
-            ui::drawArtistRow(tft, view, g);
+            ui::drawArtistRow(s_tft, view, g);
         }
 
         static uint32_t lastDraw = 0, lastWalk = 0, lastCd = 0, lastTick = 0, animMs = 0;
@@ -185,38 +185,38 @@ void loop() {
         char sig[96];
         snprintf(sig, sizeof(sig), "%s|%s|%d|%d|%d", st.deviceName, st.deviceType,
                  (int)st.shuffle, st.repeat, (int)st.isPlaying);
-        if (strcmp(sig, g_topSig) != 0) {
-            strcpy(g_topSig, sig);
-            ui::drawTopStrip(tft, st);
+        if (strcmp(sig, s_topSig) != 0) {
+            strcpy(s_topSig, sig);
+            ui::drawTopStrip(s_tft, st);
         }
         if (st.isPlaying && now - lastCd >= CD_FRAME_MS) {   // spinning CD ~6 fps
             lastCd = now;
-            ui::drawCdFrame(tft, cdFrame = (cdFrame + 1) & 3);
-            ui::drawPokeballFrame(tft, ballFrame = (ballFrame + 1) % pokeball::FRAMES);
+            ui::drawCdFrame(s_tft, cdFrame = (cdFrame + 1) & 3);
+            ui::drawPokeballFrame(s_tft, ballFrame = (ballFrame + 1) % pokeball::FRAMES);
         }
         if (now - lastDraw >= PROGRESS_MS) {
             lastDraw = now;
-            ui::drawProgressRegion(tft, view);
+            ui::drawProgressRegion(s_tft, view);
             drawDialogue(view, shownGen);
         }
         // Note icons bob while timed lyrics are shown and the music plays; at rest otherwise.
         static uint32_t lastNotes = 0;
         static int noteFrame = 0;
         static bool notesMoved = false;
-        if (g_notesDance && st.isPlaying) {
+        if (s_notesDance && st.isPlaying) {
             if (now - lastNotes >= NOTES_MS) {            // ~3 steps/s: alive, not distracting
                 lastNotes = now;
-                ui::drawNoteFrame(tft, ++noteFrame & 0x7FFF);
+                ui::drawNoteFrame(s_tft, ++noteFrame & 0x7FFF);
                 notesMoved = true;
             }
         } else if (notesMoved) {
-            ui::drawNoteFrame(tft, -1);
+            ui::drawNoteFrame(s_tft, -1);
             notesMoved = false;
         }
         if (walkerOn && now - lastWalk >= WALK_FRAME_MS) {     // ~8 fps walker
             lastWalk = now;
             if (st.isPlaying) walkStep++;
-            ui::drawWalker(tft, view, animMs, walkStep);
+            ui::drawWalker(s_tft, view, animMs, walkStep);
         }
     }
     delay(10);

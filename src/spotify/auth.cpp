@@ -8,18 +8,18 @@
 #include "../net/wifi.h"
 
 namespace spauth {
-static Preferences prefs;
+static Preferences s_prefs;
 
 String loadRefreshToken() {
-    prefs.begin("spotify", true);
-    String t = prefs.getString("rtoken", "");
-    prefs.end();
+    s_prefs.begin("spotify", true);
+    String t = s_prefs.getString("rtoken", "");
+    s_prefs.end();
     return t;
 }
 static void saveRefreshToken(const String& token) {
-    prefs.begin("spotify", false);
-    prefs.putString("rtoken", token);
-    prefs.end();
+    s_prefs.begin("spotify", false);
+    s_prefs.putString("rtoken", token);
+    s_prefs.end();
 }
 
 // The setup portal's redirect URI (must match the one registered in the Spotify app).

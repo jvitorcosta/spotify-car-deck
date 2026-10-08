@@ -30,15 +30,15 @@ static constexpr int EXP_Y = 188;
 static constexpr int DLG_X = 4, DLG_Y = 198, DLG_W = 312, DLG_H = 41;
 static constexpr int CD_CY = 10;
 
-static int g_cdX = 100;   // set by drawTopStrip from the title width
+static int s_cdX = 100;   // set by drawTopStrip from the title width
 
-void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, g_cdX, CD_CY, frame, theme::TOP_DARK); }
+void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, s_cdX, CD_CY, frame, theme::TOP_DARK); }
 
 void drawTopStrip(TFT_eSPI& t, const AppState& st) {
     topStrip(t);
     const char* title = topTitle(st.isPlaying);
     shadowText(t, title, 6, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TL_DATUM);
-    g_cdX = 6 + t.textWidth(title, 2) + 10;
+    s_cdX = 6 + t.textWidth(title, 2) + 10;
     drawCdFrame(t, 0);
 
     int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, theme::BOX_FILL,
@@ -59,16 +59,16 @@ void drawTopStrip(TFT_eSPI& t, const AppState& st) {
 // Spinning Poke Ball left of the time (it replaced the "HP " prefix); position follows the
 // time's width, frame advances with the top-bar CD (main.cpp).
 static constexpr int BALL_Y = 130;
-static int g_ballX = -1;   // left edge, set by drawProgressRegion
-static int g_ballFrame = 0;
+static int s_ballX = -1;   // left edge, set by drawProgressRegion
+static int s_ballFrame = 0;
 
 static void drawBall(TFT_eSPI& t) {
-    if (g_ballX < 0) return;
+    if (s_ballX < 0) return;
     uint16_t buf[pokeball::SIZE * pokeball::SIZE];
     for (int y = 0; y < pokeball::SIZE; ++y)
         for (int x = 0; x < pokeball::SIZE; ++x) {
             uint16_t c;
-            switch (pokeball::pixel(x, y, g_ballFrame)) {
+            switch (pokeball::pixel(x, y, s_ballFrame)) {
                 case pokeball::Px::Red:   c = theme::POKE_RED; break;
                 case pokeball::Px::White: c = TFT_WHITE; break;
                 case pokeball::Px::Dark:  c = theme::TEXT; break;
@@ -76,11 +76,11 @@ static void drawBall(TFT_eSPI& t) {
             }
             buf[y * pokeball::SIZE + x] = theme::be(c);   // pushImage is big-endian
         }
-    t.pushImage(g_ballX, BALL_Y, pokeball::SIZE, pokeball::SIZE, buf);
+    t.pushImage(s_ballX, BALL_Y, pokeball::SIZE, pokeball::SIZE, buf);
 }
 
 void drawPokeballFrame(TFT_eSPI& t, int frame) {
-    g_ballFrame = frame;
+    s_ballFrame = frame;
     drawBall(t);
 }
 
@@ -93,7 +93,7 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
              rem / 60000, (rem / 1000) % 60, tot / 60000, (tot / 1000) % 60);
     t.fillRect(206, 129, 100, 16, theme::BOX_FILL);   // clear the old time (and ball)
     shadowText(t, tbuf, 304, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TR_DATUM);
-    g_ballX = 304 - t.textWidth(tbuf, 2) - 4 - pokeball::SIZE;
+    s_ballX = 304 - t.textWidth(tbuf, 2) - 4 - pokeball::SIZE;
     drawBall(t);
     hpBarBattle(t, BAR_X, BAR_Y, BAR_W, BAR_H, hpFrac);
     expBar(t, FILL_X, EXP_Y, FILL_W, st.volume / 100.0f);
@@ -143,10 +143,10 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
 // Fixed buffer, not std::string: the UI loop shouldn't touch the heap on lyric changes.
 // Text reaching here is at most 159 bytes (shared::LyricView / lyricmsg::TEXT_CAP), well under
 // LINE_CAP, so a full compare always fits.
-static char g_lastLyric[lrcstream::LINE_CAP] = "\x01";   // never a real line -> forces a draw
-void resetLyricArea() { g_lastLyric[0] = '\x01'; g_lastLyric[1] = '\0'; }
+static char s_lastLyric[lrcstream::LINE_CAP] = "\x01";   // never a real line -> forces a draw
+void resetLyricArea() { s_lastLyric[0] = '\x01'; s_lastLyric[1] = '\0'; }
 
-static bool g_lastNotes = true;
+static bool s_lastNotes = true;
 
 // The two note icons at the ends of the dialogue box. frame < 0: at rest; otherwise they bob
 // 1 px up/down in opposite directions, swapping each frame. Only their 12x16 columns are
@@ -163,14 +163,14 @@ static void drawNotes(TFT_eSPI& t, int frame) {
 }
 
 void drawNoteFrame(TFT_eSPI& t, int frame) {
-    if (g_lastNotes) drawNotes(t, frame);   // plain lyrics have no notes to move
+    if (s_lastNotes) drawNotes(t, frame);   // plain lyrics have no notes to move
 }
 
 void drawLyricArea(TFT_eSPI& t, const char* text, bool notes) {
     const char* line = text ? text : "";
-    if (notes == g_lastNotes && strncmp(g_lastLyric, line, sizeof(g_lastLyric)) == 0) return;
-    g_lastNotes = notes;
-    txt::copy(g_lastLyric, line, sizeof(g_lastLyric));
+    if (notes == s_lastNotes && strncmp(s_lastLyric, line, sizeof(s_lastLyric)) == 0) return;
+    s_lastNotes = notes;
+    txt::copy(s_lastLyric, line, sizeof(s_lastLyric));
 
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
     t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
