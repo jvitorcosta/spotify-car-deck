@@ -12,6 +12,9 @@
   CJK symbols, half/full-width forms, CJK Unified Ideographs), GPLv2+ with the GNU font
   embedding exception / SIL OFL 1.1; converted to `data/cjk16.bin` by `tools/gen_cjk_font.py`.
 - **Lyrics:** [LRCLIB](https://lrclib.net/).
+- **Artist genres:** Apple's [iTunes Search API](https://performance-partners.apple.com/search-api);
+  the genre id → badge table (`src/ui/genre_data.inc`) is generated from Apple's genre tree by
+  `tools/gen_genres.py`.
 - **Inspiration:** [intellij-pokemon-progress](https://github.com/kagof/intellij-pokemon-progress).
 - Pokémon © Nintendo / Creatures Inc. / GAME FREAK inc. This is a personal,
   non-commercial project.

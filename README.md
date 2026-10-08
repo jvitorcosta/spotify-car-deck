@@ -154,6 +154,25 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
     so they stay distinct (`txt::copyId`); the font bounds check can't wrap around on 32-bit;
     alloc-fail counters are atomic and in IRAM; `[mem]` lines show the network task's free
     stack (lowest seen: 3.7 KB of 10 KB).
+13. **Missing lyrics.** Lyrics went missing even when Spotify had them: LRCLIB had only plain
+    (untimed) text for some songs, returned 503s now and then (one try per song), and its exact
+    lookup misses slightly different titles/durations. The reader now also keeps plain lyrics
+    (spread over 10–90% of the song, drawn without note icons) and the instrumental flag, falls
+    back to `/api/search` (entry chosen by duration ±3 s, 48 KB cap), and retries temporary
+    errors after 5 s and 20 s. The dialogue box is never empty: Pokemon battle-text messages
+    while searching ("PIKACHU used SING! Searching for the verses...") or retrying, a 1.5 s
+    "It's super effective! Lyrics found!" when lyrics arrive, then the upcoming first line
+    during the intro, and "But it failed!" then "PIKACHU is enjoying the music" when there are
+    none (`ui/lyricmsg`). Every attempt logs
+    `[lyrics] "<title>" / <artist>: <result> via get|search (try N)`. In the 10-minute session
+    afterwards one song got 503, 503, then synced lyrics on the third try, and one plain-only
+    song showed 46 lines; before, both would have shown an empty box.
+14. **Genre badge.** Spotify no longer returns artist genres to this app, so the genre comes
+    from Apple's iTunes Search API (artist search, no key, ~300 B): one request per new artist
+    after the lyrics (~1.5 s, on the network task), 32 artists cached. Apple's 478 genre ids map
+    to 29 Gen-3 style badges (`tools/gen_genres.py` → `src/ui/genre_data.inc`: subgenres take
+    the parent's badge, with overrides such as Baile Funk → FUNK BR); unknown ids show a grey
+    `???`, a nod to Gen 3's mystery type.
 
 ## Credits
 

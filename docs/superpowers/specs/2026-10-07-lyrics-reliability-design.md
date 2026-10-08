@@ -128,7 +128,7 @@ SEARCH
 
 RETRY
 - `The verses fled! {P} is trying again...`
-- `LRCLIB is fast asleep... {P} used WAKE-UP SLAP!`
+- `Spotify is fast asleep... {P} used WAKE-UP SLAP!` (messages say Spotify, not the LRCLIB backend)
 - `It's not very effective... trying again!`
 
 FAIL

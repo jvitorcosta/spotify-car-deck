@@ -16,6 +16,27 @@ Open items, not scheduled. Newest decisions first within each section.
   at log time, so the shortage is momentary (several TLS sessions + RX bursts). Ideas: fewer
   concurrent TLS buffers, smaller TCP window, spacing the per-song downloads.
 
+## Lyrics polish (deferred minors, final review 2026-10-08)
+
+- Search can never match a track whose duration is 0 (lyrics wouldn't advance anyway: the
+  position is clamped to the duration).
+- HTTP 200 with a non-JSON body (captive portal / CDN page) is a final "not found": no retry.
+  Fix idea: record whether the reader saw `{` or `[`; 200 without one -> temporary error.
+- No overall time limit per lyrics request: the 8 s stall timer resets on every byte, so a
+  trickling server can hold the network task (and the polls). A ~15 s deadline would bound it.
+- `test_all_messages_fit_two_lines` checks bytes, not rendered pixel width (worst case: "...").
+
+## Genre badge polish (deferred minors, final review 2026-10-08)
+
+- The Genre step can block the network task ~24 s worst case on a bad link (8 s handshake +
+  8 s GET + 8 s stall); a 3 s stall limit would do for a ~300 B answer.
+- No stack high-water mark recorded for the genre path (`term[300]` + `url[400]` on the 10 KB
+  network-task stack); making them `static` would remove the question.
+- Test gaps vs the spec: real Apple answers for Pop 14 / Brasileira 1122, every badge's colour,
+  and "network errors are not cached" (device code in nettask).
+- The artist cache is FIFO, not LRU: an artist on repeat is evicted after 32 newer ones.
+- README item 14 says "after the lyrics"; the step also fills the wait before a lyrics retry.
+
 ## Parked: SD card cache (not used)
 
 Decided 2026-10-07: the deck runs without a card. The cache code stays; with no card every
@@ -49,8 +70,8 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
   Instead of the dialogue box, the status panel grows into the bottom of the screen. Two
   mocked-up variants: (A) everything scales up: name/badge/time in the large font, Poke Ball
   and walker at 2x (pixel doubling), 14-16 px HP bar; (B) name row unchanged, a large
-  time-remaining readout next to a 2x walker, thicker HP bar. Needs the lyrics pipeline to
-  report a final "no lyrics" state (planned with the lyrics-reliability work).
+  time-remaining readout next to a 2x walker, thicker HP bar. The lyrics status
+  (lyricstatus::Status::None / Instrumental) now reports that final state.
 
 - Car power: brownout behaviour on noisy USB during engine start (`[boot] reset reason`
   now says "brownout" if it happens).
