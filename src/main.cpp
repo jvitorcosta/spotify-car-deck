@@ -14,6 +14,7 @@
 #include "ui/cjkdata.h"
 #include "ui/pokeball.h"
 #include "ui/lyricmsg.h"
+#include "util/genre.h"
 #include "util/interp.h"
 #include "util/netplan.h"
 #include "images/art.h"
@@ -133,6 +134,7 @@ void loop() {
     static int lastMode = -1;
     static uint32_t shownGen = 0;
     static bool walkerOn = false;
+    static uint8_t shownGenre = genre::NONE;   // badge for the track on screen
     if (mode != 0) {
         if (lastMode != mode) {   // draw the status screen once (no flicker)
             ui::drawOffline(tft, mode == 1 ? "No signal..." : "Nothing playing");
@@ -144,10 +146,13 @@ void loop() {
         bool newTrack = st.trackGen != shownGen;
         lastMode = 0;
         if (newTrack) {
+            shownGenre = genre::NONE;
             shownGen = st.trackGen;
             walkerOn = false;
         }
-        ui::drawNow(tft, view, theme::typeColor(st.pokeType));
+        uint8_t cached;   // a cached badge is posted with the track change: draw it with the title
+        if (shared::takeGenre(shownGen, &cached)) shownGenre = cached;
+        ui::drawNow(tft, view, shownGenre);
         g_topSig[0] = '\0';
         pushArtIfValid(shownGen);   // back from a status screen: same track's art is still valid
         drawDialogue(view, shownGen);
@@ -156,6 +161,11 @@ void loop() {
         // Media arriving from the network task for the track on screen.
         if (shared::takeArt(shownGen)) pushArtIfValid(shownGen);
         if (shared::takeWalker(shownGen)) walkerOn = true;
+        uint8_t g;
+        if (shared::takeGenre(shownGen, &g)) {   // genre arrived (or was cached): artist row only
+            shownGenre = g;
+            ui::drawArtistRow(tft, view, g);
+        }
 
         static uint32_t lastDraw = 0, lastWalk = 0, lastCd = 0, lastTick = 0, animMs = 0;
         static int walkStep = 0, cdFrame = 0, ballFrame = 0;

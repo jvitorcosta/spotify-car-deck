@@ -4,6 +4,8 @@
 #include "icons.h"
 #include "pokeball.h"
 #include "typebadge.h"
+#include "genrebadge.h"
+#include "../util/genre.h"
 #include "status_sprite.h"
 #include "labels.h"
 #include "textdraw.h"
@@ -223,7 +225,30 @@ void drawOffline(TFT_eSPI& t, const char* msg) {
     shadowText(t, msg, 160, 184, 4, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
 }
 
-void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
+// Gen-3 summary-style badge: rounded box in the colour, darker border, white font-1 label.
+static void drawBadge(TFT_eSPI& t, int x, int y, int w, int h, const char* label, uint16_t c) {
+    uint16_t edge = theme::darken(c);
+    t.fillRoundRect(x, y, w, h, 3, c);
+    t.drawRoundRect(x, y, w, h, 3, edge);
+    shadowText(t, label, x + w / 2, y + h / 2, 1, TFT_WHITE, edge, MC_DATUM);
+}
+
+// Info box, artist row: [GENRE] Artist. Without a badge the name keeps the full width.
+void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
+    const int TW = INFO_W - 26, x0 = INFO_X + 8, y = INFO_Y + 32;
+    t.fillRect(x0, y - 1, TW, 19, theme::BOX_FILL);
+    int x = x0, maxW = TW;
+    if (genre != genre::NONE && genre < genrebadge::count()) {
+        const genrebadge::Badge& b = genrebadge::at(genre);
+        drawBadge(t, x, y + 2, genrebadge::W, genrebadge::H, b.label, b.color);
+        x += genrebadge::W + 6;
+        maxW -= genrebadge::W + 6;
+    }
+    drawText(t, st.artist[0] ? st.artist : "Artist", x, y, 2, theme::TEXT, theme::TEXT_SHADOW,
+             TL_DATUM, maxW);
+}
+
+void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
     background(t);
     drawTopStrip(t, st);
 
@@ -236,8 +261,7 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     const int TW = INFO_W - 26;
     drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 8, 2,
              theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
-    drawText(t, st.artist[0] ? st.artist : "Artist", INFO_X + 8, INFO_Y + 32, 2,
-             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
+    drawArtistRow(t, st, genre);
     char from[96];
     snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
     drawText(t, from, INFO_X + 8, INFO_Y + 58, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
@@ -250,10 +274,7 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent) {
     int x = 24;
     char lbl[12];
     if (typebadge::label(st.pokeType, lbl, sizeof(lbl))) {
-        uint16_t c = theme::typeColor(st.pokeType), edge = theme::darken(c);
-        t.fillRoundRect(x, 131, typebadge::W, typebadge::H, 3, c);
-        t.drawRoundRect(x, 131, typebadge::W, typebadge::H, 3, edge);
-        shadowText(t, lbl, x + typebadge::W / 2, 131 + typebadge::H / 2, 1, TFT_WHITE, edge, MC_DATUM);
+        drawBadge(t, x, 131, typebadge::W, typebadge::H, lbl, theme::typeColor(st.pokeType));
         x += typebadge::W + 6;
     }
     int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", x, 129, 2, theme::TEXT,

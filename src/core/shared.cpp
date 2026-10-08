@@ -14,6 +14,8 @@ static uint32_t g_lyricsGen = 0;   // gen the arena is valid for (0 = invalid)
 static uint32_t g_walkerGen = 0;
 static uint32_t g_statusGen = 0;   // gen g_status belongs to (0 = none)
 static lyricstatus::Status g_status = lyricstatus::Status::Searching;
+static uint32_t g_genreGen = 0;    // gen g_genre was posted for (0 = none waiting)
+static uint8_t g_genre = 0;
 
 void begin() { if (!g_mtx) g_mtx = xSemaphoreCreateMutex(); }
 void lock() { xSemaphoreTake(g_mtx, portMAX_DELAY); }
@@ -73,6 +75,21 @@ bool takeWalker(uint32_t gen) {
     Guard g;
     if (gen == 0 || g_walkerGen != gen) return false;
     g_walkerGen = 0;
+    return true;
+}
+
+void postGenre(uint32_t gen, uint8_t badge) {
+    Guard g;
+    if (gen != g_state.trackGen) return;   // stale: track moved on
+    g_genreGen = gen;
+    g_genre = badge;
+}
+
+bool takeGenre(uint32_t gen, uint8_t* badge) {
+    Guard g;
+    if (gen == 0 || g_genreGen != gen) return false;
+    g_genreGen = 0;
+    *badge = g_genre;
     return true;
 }
 

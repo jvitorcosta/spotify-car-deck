@@ -11,6 +11,9 @@
 #include "../pokemon/pick.h"
 #include "../pokemon/dex.h"
 #include "../util/netplan.h"
+#include "../util/genre.h"
+#include "../ui/genrebadge.h"
+#include "../genre/apple.h"
 
 // History (README "Design & performance history"): these calls used to run inline in
 // loop(). Each is a fresh TLS handshake (poll ~1.5 s, player ~1.4 s, PokeAPI 4.2 s, art
@@ -24,6 +27,7 @@ static netplan::Work s_work{};
 static netplan::LinkGate s_link;
 static netplan::Health s_health;
 static netplan::LyricsRetry s_lyricsRetry;   // 5 s / 20 s retries after LRCLIB hiccups
+static genre::Cache s_genres;   // last 32 artists' badges: repeats cost no request
 static uint32_t s_failsAtOk = 0;   // mem::failTotal() at the last good poll
 static bool s_spotifyReady = false;   // WiFi + spclient::begin() done   // pause optional work / restart when polls keep failing   // "No signal" only after several failed polls in a row
 static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot (Task 12)
@@ -46,6 +50,11 @@ static void onTrackChange() {
     }
     s_work = netplan::freshWork(prefetched);
     s_lyricsRetry.reset();               // UI shows "searching" until the first result
+    uint8_t badge;
+    if (s_genres.find(s_st.artist, &badge)) {   // known artist (or none): no request
+        netplan::done(s_work, netplan::Step::Genre);
+        if (badge != genre::NONE) shared::postGenre(s_st.trackGen, badge);
+    }
     Serial.printf("[net] track gen=%u%s\n", (unsigned)s_st.trackGen,
                   prefetched ? " (prefetched walker)" : "");
 }
@@ -98,6 +107,26 @@ static bool doStep(netplan::Step step) {
             bool ok = walk::loadPmd(n) || walk::loadFallback(url, n);
             s_prefetchDex = ok ? n : 0;
             tock(ok ? "prefetch" : "prefetch failed");
+            break;
+        }
+        case netplan::Step::Genre: {
+            tick();
+            uint32_t id = 0;
+            int rc = 0;
+            applegenre::Result r = applegenre::lookup(s_st.artist, &id, &rc);
+            if (r == applegenre::Result::Found) {
+                uint8_t badge = genrebadge::forGenreId(id);
+                s_genres.store(s_st.artist, badge);
+                shared::postGenre(gen, badge);
+                Serial.printf("[genre] \"%s\": %u -> %s\n", s_st.artist, (unsigned)id,
+                              genrebadge::at(badge).label);
+            } else if (r == applegenre::Result::None) {
+                s_genres.store(s_st.artist, genre::NONE);   // Apple doesn't know: don't ask again
+                Serial.printf("[genre] \"%s\": none\n", s_st.artist);
+            } else {
+                Serial.printf("[genre] \"%s\": error rc=%d\n", s_st.artist, rc);   // not cached
+            }
+            tock("genre");
             break;
         }
         case netplan::Step::None:

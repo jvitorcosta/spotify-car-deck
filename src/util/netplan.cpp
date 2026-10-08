@@ -12,11 +12,12 @@ bool TrackGen::update(const char* track) {
     return true;
 }
 
-Work freshWork(bool walkerReady) { return {!walkerReady, true, true, true}; }
+Work freshWork(bool walkerReady) { return {!walkerReady, true, true, true, true}; }
 
 Step next(const Work& w, bool lyricsReady) {
     if (w.art) return Step::Art;
     if (w.lyrics && lyricsReady) return Step::Lyrics;
+    if (w.genre) return Step::Genre;
     if (w.walk) return Step::Walk;
     if (w.prefetch) return Step::Prefetch;
     return Step::None;
@@ -28,6 +29,7 @@ void done(Work& w, Step s) {
         case Step::Art:      w.art = false; break;
         case Step::Lyrics:   w.lyrics = false; break;
         case Step::Prefetch: w.prefetch = false; break;
+        case Step::Genre:    w.genre = false; break;
         case Step::None:     break;
     }
 }
@@ -36,6 +38,7 @@ bool canRun(Step s, unsigned largest) {
     switch (s) {
         case Step::Art:      return largest >= 6000;
         case Step::Lyrics:
+        case Step::Genre:
         case Step::Walk:
         case Step::Prefetch: return largest >= TLS_NEED;
         case Step::None:     return true;

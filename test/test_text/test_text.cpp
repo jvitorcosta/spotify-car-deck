@@ -82,8 +82,31 @@ void test_copy_id_null_is_empty() {
     txt::copyId(nullptr, o, sizeof(o));
     TEST_ASSERT_EQUAL_STRING("", o);
 }
+void test_url_encode_reserved_and_utf8() {
+    char o[128];
+    TEST_ASSERT_EQUAL_INT(35, (int)txt::urlEncode("S. Kiyotaka & Omega Tribe", o, sizeof(o)));
+    TEST_ASSERT_EQUAL_STRING("S.%20Kiyotaka%20%26%20Omega%20Tribe", o);
+    txt::urlEncode("Racionais MC's", o, sizeof(o));
+    TEST_ASSERT_EQUAL_STRING("Racionais%20MC%27s", o);
+    txt::urlEncode("Mar\xC3\xADlia", o, sizeof(o));
+    TEST_ASSERT_EQUAL_STRING("Mar%C3%ADlia", o);
+    txt::urlEncode("a-b_c.d~e", o, sizeof(o));
+    TEST_ASSERT_EQUAL_STRING("a-b_c.d~e", o);         // unreserved kept
+}
+void test_url_encode_truncates_whole_escapes() {
+    char o[6];                                       // room for 5 chars
+    txt::urlEncode("ab&cd", o, sizeof(o));
+    TEST_ASSERT_EQUAL_STRING("ab%26", o);
+    char p[5];                                       // room for 4: "%26" no longer fits after "ab"
+    txt::urlEncode("ab&cd", p, sizeof(p));
+    TEST_ASSERT_EQUAL_STRING("ab", p);
+    txt::urlEncode(nullptr, p, sizeof(p));
+    TEST_ASSERT_EQUAL_STRING("", p);
+}
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_url_encode_reserved_and_utf8);
+    RUN_TEST(test_url_encode_truncates_whole_escapes);
     RUN_TEST(test_copy_id_short_is_copied_verbatim);
     RUN_TEST(test_copy_id_long_ids_stay_distinct);
     RUN_TEST(test_copy_id_null_is_empty);

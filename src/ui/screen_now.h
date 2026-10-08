@@ -12,7 +12,10 @@ constexpr int ART_X = 11, ART_Y = 27, ART_W = 92, ART_H = 92;
 
 // Full Gen-3 battle deck: background, top strip, art box, info box, status box,
 // dialogue box. Called on track change / return from a status screen.
-void drawNow(TFT_eSPI& t, const AppState& st, uint16_t accent);
+// Full deck. genre: genrebadge index for the artist row, or genre::NONE (no badge yet/none).
+void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre);
+// Repaints only the artist row in the info box (badge + name) when the genre arrives.
+void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre);
 // Top strip only (title, CD, shuffle/repeat, device icon + name).
 void drawTopStrip(TFT_eSPI& t, const AppState& st);
 // Spinning CD after "NOW PLAYING" (frame 0..3).

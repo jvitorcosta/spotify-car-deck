@@ -78,12 +78,12 @@ inline bool stale(uint32_t nowMs, uint32_t lastOkMs, uint32_t limitMs) {
     return lastOkMs != 0 && nowMs - lastOkMs > limitMs;
 }
 
-enum class Step { None, Walk, Art, Lyrics, Prefetch };
-struct Work { bool walk, art, lyrics, prefetch; };   // true = still to do
+enum class Step { None, Walk, Art, Lyrics, Prefetch, Genre };
+struct Work { bool walk, art, lyrics, prefetch, genre; };   // true = still to do
 
 // Work list for a new track. walkerReady = a prefetched walker was promoted.
 Work freshWork(bool walkerReady);
-// Next step in priority order: Art, Lyrics, Walk, Prefetch; None when all done.
+// Next step in priority order: Art, Lyrics, Genre, Walk, Prefetch; None when all done.
 // Art and lyrics are what the listener waits for; the walker is usually prefetched.
 // lyricsReady false (waiting to retry): Lyrics is skipped for now.
 Step next(const Work& w, bool lyricsReady = true);

@@ -41,4 +41,8 @@ void lyricView(uint32_t gen, uint32_t posMs, LyricView& out);
 // Walker: posted once the new walker is promoted for the track generation.
 void postWalker(uint32_t gen);
 bool takeWalker(uint32_t gen);
+
+// Genre badge (genrebadge index) for the track generation; true once per arrival (UI).
+void postGenre(uint32_t gen, uint8_t badge);
+bool takeGenre(uint32_t gen, uint8_t* badge);
 }

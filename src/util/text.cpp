@@ -20,6 +20,28 @@ void copyId(const char* src, char* dst, size_t n) {
     dst[n - 1] = '\0';
 }
 
+size_t urlEncode(const char* s, char* out, size_t n) {
+    if (n == 0) return 0;
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+    for (; s && *s; ++s) {
+        unsigned char c = (unsigned char)*s;
+        bool keep = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                    c == '-' || c == '_' || c == '.' || c == '~';
+        size_t need = keep ? 1 : 3;
+        if (o + need > n - 1) break;
+        if (keep) {
+            out[o++] = (char)c;
+        } else {
+            out[o++] = '%';
+            out[o++] = hex[c >> 4];
+            out[o++] = hex[c & 0xF];
+        }
+    }
+    out[o] = '\0';
+    return o;
+}
+
 // ASCII base for a Latin-1 code point (U+00C0..U+00FF).
 static const char* foldLatin1(unsigned int cp) {
     switch (cp) {

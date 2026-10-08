@@ -34,13 +34,15 @@ void test_empty_name_is_ignored_and_keeps_last() {
     TEST_ASSERT_EQUAL_UINT32(1, g.gen());
 }
 void test_order_without_prefetched_walker() {
-    // Art and lyrics first: they are what the user waits for; the walker is usually
-    // prefetched, and when it isn't it can follow.
+    // Art and lyrics first: they are what the user waits for; then the small genre lookup;
+    // the walker is usually prefetched, and when it isn't it can follow.
     netplan::Work w = netplan::freshWork(false);
     TEST_ASSERT_EQUAL_INT((int)Step::Art, (int)netplan::next(w));
     netplan::done(w, Step::Art);
     TEST_ASSERT_EQUAL_INT((int)Step::Lyrics, (int)netplan::next(w));
     netplan::done(w, Step::Lyrics);
+    TEST_ASSERT_EQUAL_INT((int)Step::Genre, (int)netplan::next(w));
+    netplan::done(w, Step::Genre);
     TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w));
     netplan::done(w, Step::Walk);
     TEST_ASSERT_EQUAL_INT((int)Step::Prefetch, (int)netplan::next(w));
@@ -177,11 +179,24 @@ void test_lyrics_retry_ready_survives_millis_wrap() {
 void test_next_skips_lyrics_while_waiting() {
     netplan::Work w = netplan::freshWork(false);
     netplan::done(w, Step::Art);
-    TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w, false));
+    TEST_ASSERT_EQUAL_INT((int)Step::Genre, (int)netplan::next(w, false));
     TEST_ASSERT_EQUAL_INT((int)Step::Lyrics, (int)netplan::next(w, true));
+    netplan::done(w, Step::Genre);
     netplan::done(w, Step::Walk);
     netplan::done(w, Step::Prefetch);
     TEST_ASSERT_EQUAL_INT((int)Step::None, (int)netplan::next(w, false));
+}
+void test_genre_done_skips_to_walk() {
+    // A cached genre marks the step done at the track change: the walker comes right after lyrics.
+    netplan::Work w = netplan::freshWork(false);
+    netplan::done(w, Step::Genre);
+    netplan::done(w, Step::Art);
+    netplan::done(w, Step::Lyrics);
+    TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w));
+}
+void test_can_run_genre_needs_tls() {
+    TEST_ASSERT_TRUE(netplan::canRun(Step::Genre, netplan::TLS_NEED));
+    TEST_ASSERT_FALSE(netplan::canRun(Step::Genre, netplan::TLS_NEED - 1));
 }
 void test_status_for_results() {
     TEST_ASSERT_EQUAL_INT((int)Status::Retrying, (int)lyricstatus::statusFor(Result::TempError, false));
@@ -217,5 +232,7 @@ int main(int, char**) {
     RUN_TEST(test_lyrics_retry_ready_survives_millis_wrap);
     RUN_TEST(test_next_skips_lyrics_while_waiting);
     RUN_TEST(test_status_for_results);
+    RUN_TEST(test_genre_done_skips_to_walk);
+    RUN_TEST(test_can_run_genre_needs_tls);
     return UNITY_END();
 }
