@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  firmware:
+    name: Firmware build (esp32dev)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+      - name: Stub config (the real src/config.h is git-ignored)
+        run: cp include/config.example.h src/config.h
+      - name: Build firmware
+        run: pio run -e esp32dev
+      - name: Build hardware check
+        run: pio run -e hwcheck
+
+  host-tests:
+    name: Host unit tests (Unity + g++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO and Unity
+        run: |
+          pip install --upgrade platformio
+          pio pkg install -e native -l throwtheswitch/Unity
+      - name: Run all suites
+        shell: pwsh
+        run: ./tools/run_tests.ps1

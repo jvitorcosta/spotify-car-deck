@@ -1,8 +1,11 @@
-# Runs every host test suite in test/ with tools\ntest.ps1, compiling each test together
-# with the src/ modules it (transitively) #includes.
-#   powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1
+# Runs every host test suite in test/ with tools/ntest.ps1, compiling each test together
+# with the src/ modules it (transitively) #includes. Windows PowerShell or PowerShell 7 (CI).
+#   powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1     (Windows)
+#   pwsh tools/run_tests.ps1                                          (Linux/macOS)
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
+$ps = (Get-Process -Id $PID).Path                  # run ntest with this same PowerShell
+$ntest = Join-Path $PSScriptRoot "ntest.ps1"
 function Deps($file, $seen) {
     $dir = Split-Path $file -Parent
     foreach ($m in (Select-String -Path $file -Pattern '#include\s+"([^"]+)"' -AllMatches).Matches) {
@@ -22,7 +25,7 @@ foreach ($t in Get-ChildItem test -Directory) {
     $seen = New-Object 'System.Collections.Generic.HashSet[string]'
     Deps $tf.FullName $seen
     $mods = @($seen | Where-Object { $_ -like "*.cpp" })
-    $o = & powershell -ExecutionPolicy Bypass -File tools\ntest.ps1 $tf.FullName @mods 2>&1
+    $o = & $ps -NoProfile -ExecutionPolicy Bypass -File $ntest $tf.FullName @mods 2>&1
     if ($LASTEXITCODE -eq 0) { $pass++; Write-Host "PASS $($t.Name): $(($o | Select-String 'Tests').Line)" }
     else { $fail++; Write-Host "FAIL $($t.Name)"; $o | Select-Object -Last 15 }
 }
