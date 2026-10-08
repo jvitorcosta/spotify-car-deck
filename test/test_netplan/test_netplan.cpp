@@ -1,5 +1,7 @@
 #include <unity.h>
+#include <initializer_list>
 #include "../../src/util/netplan.h"
+#include "../../src/util/lyricstatus.h"
 
 using netplan::Step;
 void setUp() {}
@@ -139,6 +141,56 @@ void test_stale_after_limit_and_handles_wrap() {
     TEST_ASSERT_TRUE(netplan::stale(30001, 10000, 20000));
     TEST_ASSERT_TRUE(netplan::stale(5000, 0xFFFFF000u, 2000)); // millis() wrapped
 }
+using lyricstatus::Result;
+using lyricstatus::Status;
+void test_lyrics_retry_after_5s_then_20s_then_gives_up() {
+    netplan::LyricsRetry r;
+    TEST_ASSERT_TRUE(r.ready(0));
+    TEST_ASSERT_FALSE(r.onResult(Result::TempError, 1000));
+    TEST_ASSERT_FALSE(r.ready(1000 + 4999));
+    TEST_ASSERT_TRUE(r.ready(1000 + 5000));
+    TEST_ASSERT_FALSE(r.onResult(Result::TempError, 7000));
+    TEST_ASSERT_FALSE(r.ready(7000 + 19999));
+    TEST_ASSERT_TRUE(r.ready(7000 + 20000));
+    TEST_ASSERT_TRUE(r.onResult(Result::TempError, 30000));   // third: give up
+    TEST_ASSERT_EQUAL_INT(3, r.attempts());
+}
+void test_lyrics_other_results_are_final() {
+    for (Result x : {Result::Synced, Result::Plain, Result::Instrumental, Result::NotFound}) {
+        netplan::LyricsRetry r;
+        TEST_ASSERT_TRUE(r.onResult(x, 0));
+    }
+}
+void test_lyrics_retry_reset_on_track_change() {
+    netplan::LyricsRetry r;
+    r.onResult(Result::TempError, 1000);
+    r.reset();
+    TEST_ASSERT_TRUE(r.ready(1001));
+    TEST_ASSERT_EQUAL_INT(0, r.attempts());
+}
+void test_lyrics_retry_ready_survives_millis_wrap() {
+    netplan::LyricsRetry r;
+    r.onResult(Result::TempError, 0xFFFFF000u);
+    TEST_ASSERT_FALSE(r.ready(0x00000100u));                 // 4352 ms later
+    TEST_ASSERT_TRUE(r.ready(0xFFFFF000u + 5000u));
+}
+void test_next_skips_lyrics_while_waiting() {
+    netplan::Work w = netplan::freshWork(false);
+    netplan::done(w, Step::Art);
+    TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w, false));
+    TEST_ASSERT_EQUAL_INT((int)Step::Lyrics, (int)netplan::next(w, true));
+    netplan::done(w, Step::Walk);
+    netplan::done(w, Step::Prefetch);
+    TEST_ASSERT_EQUAL_INT((int)Step::None, (int)netplan::next(w, false));
+}
+void test_status_for_results() {
+    TEST_ASSERT_EQUAL_INT((int)Status::Retrying, (int)lyricstatus::statusFor(Result::TempError, false));
+    TEST_ASSERT_EQUAL_INT((int)Status::None, (int)lyricstatus::statusFor(Result::TempError, true));
+    TEST_ASSERT_EQUAL_INT((int)Status::None, (int)lyricstatus::statusFor(Result::NotFound, true));
+    TEST_ASSERT_EQUAL_INT((int)Status::Synced, (int)lyricstatus::statusFor(Result::Synced, true));
+    TEST_ASSERT_EQUAL_INT((int)Status::Plain, (int)lyricstatus::statusFor(Result::Plain, true));
+    TEST_ASSERT_EQUAL_INT((int)Status::Instrumental, (int)lyricstatus::statusFor(Result::Instrumental, true));
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_first_track_bumps_generation);
@@ -159,5 +211,11 @@ int main(int, char**) {
     RUN_TEST(test_health_wifi_back_resets_backstop_and_memory_clock);
     RUN_TEST(test_health_first_call_failing_starts_clock);
     RUN_TEST(test_stale_after_limit_and_handles_wrap);
+    RUN_TEST(test_lyrics_retry_after_5s_then_20s_then_gives_up);
+    RUN_TEST(test_lyrics_other_results_are_final);
+    RUN_TEST(test_lyrics_retry_reset_on_track_change);
+    RUN_TEST(test_lyrics_retry_ready_survives_millis_wrap);
+    RUN_TEST(test_next_skips_lyrics_while_waiting);
+    RUN_TEST(test_status_for_results);
     return UNITY_END();
 }

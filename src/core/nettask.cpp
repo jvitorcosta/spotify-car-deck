@@ -23,6 +23,7 @@ static netplan::TrackGen s_gen;
 static netplan::Work s_work{};
 static netplan::LinkGate s_link;
 static netplan::Health s_health;
+static netplan::LyricsRetry s_lyricsRetry;   // 5 s / 20 s retries after LRCLIB hiccups
 static uint32_t s_failsAtOk = 0;   // mem::failTotal() at the last good poll
 static bool s_spotifyReady = false;   // WiFi + spclient::begin() done   // pause optional work / restart when polls keep failing   // "No signal" only after several failed polls in a row
 static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot (Task 12)
@@ -44,11 +45,13 @@ static void onTrackChange() {
         shared::postWalker(s_st.trackGen); // walker appears together with the title
     }
     s_work = netplan::freshWork(prefetched);
+    s_lyricsRetry.reset();               // UI shows "searching" until the first result
     Serial.printf("[net] track gen=%u%s\n", (unsigned)s_st.trackGen,
                   prefetched ? " (prefetched walker)" : "");
 }
 
-static void doStep(netplan::Step step) {
+// Runs one step; false when the step must run again later (lyrics retry).
+static bool doStep(netplan::Step step) {
     const uint32_t gen = s_st.trackGen;
     switch (step) {
         case netplan::Step::Walk: {
@@ -74,9 +77,15 @@ static void doStep(netplan::Step step) {
         case netplan::Step::Lyrics: {
             tick();
             shared::lyricsInvalidate();       // UI stops reading the arena before we overwrite it
-            if (lyricsvc::fetchInto(s_st, lyricsvc::arena())) shared::postLyrics(gen);
-            tock("lyrics");
+            lyricstatus::Result r =
+                lyricsvc::fetchInto(s_st, lyricsvc::arena(), s_lyricsRetry.attempts() + 1);
+            bool final = s_lyricsRetry.onResult(r, millis());
+            if (r == lyricstatus::Result::Synced || r == lyricstatus::Result::Plain)
+                shared::postLyrics(gen);      // lines first, then the status that points at them
+            shared::postLyricsStatus(gen, lyricstatus::statusFor(r, final));
+            tock(final ? "lyrics" : "lyrics (retry later)");
             mem::log("lyrics");
+            if (!final) return false;
             break;
         }
         case netplan::Step::Prefetch: {
@@ -95,6 +104,7 @@ static void doStep(netplan::Step step) {
             break;
     }
     netplan::done(s_work, step);
+    return true;
 }
 
 static void run(void*) {
@@ -144,7 +154,7 @@ static void run(void*) {
             tock("player");
             shared::publish(s_st);
         } else {
-            netplan::Step step = netplan::next(s_work);
+            netplan::Step step = netplan::next(s_work, s_lyricsRetry.ready(now));
             static bool deferred = false;
             if (step != netplan::Step::None) {
                 bool optional = step != netplan::Step::Art;

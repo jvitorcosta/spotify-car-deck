@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "app_state.h"
+#include "../util/lyricstatus.h"
 
 // State shared between the network task (core 0) and the UI loop (core 1), behind one
 // FreeRTOS mutex. Why two tasks: with all HTTPS inline, every Spotify poll froze the
@@ -26,8 +27,16 @@ bool artValidLocked(uint32_t gen);     // caller holds the lock (UI redraw + pus
 // into it and postLyrics(gen) after; the UI copies the current line under the lock.
 void lyricsInvalidate();
 void postLyrics(uint32_t gen);
-// Copies the synced line for posMs into out ("" if none / not valid for gen).
-void lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len);
+// Lyrics status for the track (the UI sees Searching until the network task posts one).
+// Post it after postLyrics(), so a Synced/Plain status never arrives before its lines.
+void postLyricsStatus(uint32_t gen, lyricstatus::Status s);
+// Everything the dialogue box needs, read under one lock.
+struct LyricView {
+    lyricstatus::Status status;
+    uint32_t firstLineMs;   // time of the first line (0 if no valid lines)
+    char line[160];         // current line for posMs; the first line during the intro
+};
+void lyricView(uint32_t gen, uint32_t posMs, LyricView& out);
 
 // Walker: posted once the new walker is promoted for the track generation.
 void postWalker(uint32_t gen);

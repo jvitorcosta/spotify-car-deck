@@ -25,7 +25,12 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st);
 // step = frame counter (fallback bob/mirror).
 void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step);
 // Current lyric line in the dialogue box (redraws only when the text changes).
-void drawLyricArea(TFT_eSPI& t, const char* currentLine);
+// Dialogue-box text (a lyric line or a status message), redrawn only when it changes.
+// notes: draw the note icons (off for plain lyrics, whose timing is approximate).
+void drawLyricArea(TFT_eSPI& t, const char* text, bool notes);
+// Moves the dialogue-box note icons (frame >= 0 bobs them, < 0 puts them at rest); no-op
+// while the box has no notes (plain lyrics).
+void drawNoteFrame(TFT_eSPI& t, int frame);
 // Forget the last drawn lyric so the next drawLyricArea() repaints (after drawNow).
 void resetLyricArea();
 // Full-screen status message in a dialogue box ("No signal...", "Nothing playing").

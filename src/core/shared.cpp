@@ -12,6 +12,8 @@ static uint32_t g_artGen = 0;  // gen the bitmap is valid for (0 = invalid)
 static bool g_artNew = false;
 static uint32_t g_lyricsGen = 0;   // gen the arena is valid for (0 = invalid)
 static uint32_t g_walkerGen = 0;
+static uint32_t g_statusGen = 0;   // gen g_status belongs to (0 = none)
+static lyricstatus::Status g_status = lyricstatus::Status::Searching;
 
 void begin() { if (!g_mtx) g_mtx = xSemaphoreCreateMutex(); }
 void lock() { xSemaphoreTake(g_mtx, portMAX_DELAY); }
@@ -46,13 +48,25 @@ void lyricsInvalidate() { Guard g; g_lyricsGen = 0; }
 
 void postLyrics(uint32_t gen) { Guard g; if (gen == g_state.trackGen) g_lyricsGen = gen; }
 
-void lyricLine(uint32_t gen, uint32_t posMs, char* out, size_t len) {
+void postLyricsStatus(uint32_t gen, lyricstatus::Status s) {
     Guard g;
-    out[0] = '\0';
+    if (gen != g_state.trackGen) return;   // stale: track moved on
+    g_statusGen = gen;
+    g_status = s;
+}
+
+void lyricView(uint32_t gen, uint32_t posMs, LyricView& out) {
+    Guard g;
+    out.status = (gen != 0 && g_statusGen == gen) ? g_status : lyricstatus::Status::Searching;
+    out.firstLineMs = 0;
+    out.line[0] = '\0';
     if (gen == 0 || g_lyricsGen != gen) return;
     const lyricbuf::Lyrics& l = lyricsvc::arena();
-    strncpy(out, lyricbuf::lineText(l, lyricbuf::currentIndex(l, posMs)), len - 1);
-    out[len - 1] = '\0';
+    if (l.n > 0) out.firstLineMs = l.lines[0].tMs;
+    int idx = lyricbuf::currentIndex(l, posMs);
+    if (idx < 0) idx = 0;                   // intro: show the upcoming first line
+    strncpy(out.line, lyricbuf::lineText(l, idx), sizeof(out.line) - 1);
+    out.line[sizeof(out.line) - 1] = '\0';
 }
 
 bool takeWalker(uint32_t gen) {

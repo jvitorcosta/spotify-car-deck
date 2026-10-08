@@ -13,6 +13,7 @@
 #include "ui/screen_now.h"
 #include "ui/cjkdata.h"
 #include "ui/pokeball.h"
+#include "ui/lyricmsg.h"
 #include "util/interp.h"
 #include "util/netplan.h"
 #include "images/art.h"
@@ -53,6 +54,29 @@ static void pushArtIfValid(uint32_t gen) {
     shared::Guard g;
     if (shared::artValidLocked(gen))
         tft.pushImage(ui::ART_X, ui::ART_Y, art::W, art::H, art::bitmap());
+}
+
+static bool g_notesDance = false;   // a timed lyric line is on screen (set by drawDialogue)
+
+// Dialogue box for the track on screen: the lyric line, or a Pokemon-style status message
+// (searching / retrying / intro / no lyrics). The status age drives the FAIL -> IDLE switch.
+static void drawDialogue(const AppState& view, uint32_t gen) {
+    static lyricstatus::Status lastStatus = lyricstatus::Status::Searching;
+    static uint32_t lastGen = 0, since = 0;
+    static shared::LyricView lv;      // static: keep the loop stack small
+    static lyricmsg::Out out;
+    shared::lyricView(gen, view.progressMs, lv);
+    uint32_t now = millis();
+    if (gen != lastGen || lv.status != lastStatus) {
+        lastGen = gen;
+        lastStatus = lv.status;
+        since = now;
+    }
+    lyricmsg::In in{lv.status, now - since, view.progressMs, lv.firstLineMs, lv.line,
+                    view.pokeName, gen};
+    lyricmsg::compose(in, out);
+    ui::drawLyricArea(tft, out.text, out.notes);
+    g_notesDance = out.dance;
 }
 
 void setup() {
@@ -126,9 +150,7 @@ void loop() {
         ui::drawNow(tft, view, theme::typeColor(st.pokeType));
         g_topSig[0] = '\0';
         pushArtIfValid(shownGen);   // back from a status screen: same track's art is still valid
-        char line[160];
-        shared::lyricLine(shownGen, view.progressMs, line, sizeof(line));
-        ui::drawLyricArea(tft, line);
+        drawDialogue(view, shownGen);
         mem::log("track");
     } else {
         // Media arriving from the network task for the track on screen.
@@ -158,9 +180,21 @@ void loop() {
         if (now - lastDraw >= 250) {
             lastDraw = now;
             ui::drawProgressRegion(tft, view);
-            char line[160];
-            shared::lyricLine(shownGen, view.progressMs, line, sizeof(line));
-            ui::drawLyricArea(tft, line);
+            drawDialogue(view, shownGen);
+        }
+        // Note icons bob while timed lyrics are shown and the music plays; at rest otherwise.
+        static uint32_t lastNotes = 0;
+        static int noteFrame = 0;
+        static bool notesMoved = false;
+        if (g_notesDance && st.isPlaying) {
+            if (now - lastNotes >= 330) {            // ~3 steps/s: alive, not distracting
+                lastNotes = now;
+                ui::drawNoteFrame(tft, ++noteFrame & 0x7FFF);
+                notesMoved = true;
+            }
+        } else if (notesMoved) {
+            ui::drawNoteFrame(tft, -1);
+            notesMoved = false;
         }
         if (walkerOn && now - lastWalk >= 120) {     // ~8 fps walker
             lastWalk = now;

@@ -153,9 +153,30 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
 static char g_lastLyric[lrcstream::LINE_CAP] = "\x01";   // never a real line -> forces a draw
 void resetLyricArea() { g_lastLyric[0] = '\x01'; g_lastLyric[1] = '\0'; }
 
-void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
-    const char* line = currentLine ? currentLine : "";
-    if (strncmp(g_lastLyric, line, sizeof(g_lastLyric)) == 0) return;
+static bool g_lastNotes = true;
+
+// The two note icons at the ends of the dialogue box. frame < 0: at rest; otherwise they bob
+// 1 px up/down in opposite directions, swapping each frame. Only their 12x16 columns are
+// repainted, never the lyric text.
+static void drawNotes(TFT_eSPI& t, int frame) {
+    const int ix = DLG_X + 6, iw = DLG_W - 12, y = DLG_Y + 14;
+    const int xl = ix + 2, xr = ix + iw - 14;
+    int dl = 0, dr = 0;
+    if (frame >= 0) { dl = (frame & 1) ? 1 : -1; dr = -dl; }
+    t.fillRect(xl, y - 2, icons::SIZE, icons::SIZE + 4, theme::DLG_FILL);
+    t.fillRect(xr, y - 2, icons::SIZE, icons::SIZE + 4, theme::DLG_FILL);
+    drawIcon(t, icons::Icon::Note, xl, y + dl, theme::DLG_FRAME, theme::DLG_FILL);
+    drawIcon(t, icons::Icon::Note, xr, y + dr, theme::DLG_FRAME, theme::DLG_FILL);
+}
+
+void drawNoteFrame(TFT_eSPI& t, int frame) {
+    if (g_lastNotes) drawNotes(t, frame);   // plain lyrics have no notes to move
+}
+
+void drawLyricArea(TFT_eSPI& t, const char* text, bool notes) {
+    const char* line = text ? text : "";
+    if (notes == g_lastNotes && strncmp(g_lastLyric, line, sizeof(g_lastLyric)) == 0) return;
+    g_lastNotes = notes;
     strncpy(g_lastLyric, line, sizeof(g_lastLyric) - 1);
     g_lastLyric[sizeof(g_lastLyric) - 1] = '\0';
 
@@ -165,8 +186,7 @@ void drawLyricArea(TFT_eSPI& t, const char* currentLine) {
     static glyphrun::Item items[163];
     size_t n = glyphrun::decode(line, items, 160, asciiWidth2, wideWidth, &t);
     if (!n) return;
-    drawIcon(t, icons::Icon::Note, ix + 2, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
-    drawIcon(t, icons::Icon::Note, ix + iw - 14, DLG_Y + 14, theme::DLG_FRAME, theme::DLG_FILL);
+    if (notes) drawNotes(t, -1);
     const int textW = iw - 2 * 18;
     glyphrun::Wrap w = glyphrun::wrapTwo(items, n, textW, 3 * asciiWidth2('.', &t));
     int cx = DLG_X + DLG_W / 2;

@@ -26,6 +26,7 @@ static bool parseTag(const char* p, const char* end, uint32_t* tMs, const char**
 void reset(Lyrics& out) {
     out.n = 0;
     out.used = 1;                         // text[0] is the shared "" for out-of-range lookups
+    out.plainTotal = 0;
     out.text[0] = '\0';
 }
 
@@ -53,6 +54,37 @@ void finish(Lyrics& out) {
         while (j >= 0 && out.lines[j].tMs > v.tMs) { out.lines[j + 1] = out.lines[j]; --j; }
         out.lines[j + 1] = v;
     }
+}
+
+bool hasTag(const char* line, size_t len) {
+    uint32_t t;
+    const char* txt;
+    return parseTag(line, line + len, &t, &txt);
+}
+
+bool addPlain(Lyrics& out, const char* p, size_t len) {
+    const char* end = p + len;
+    while (end > p && (end[-1] == '\r' || end[-1] == '\n' || end[-1] == ' ' || end[-1] == '\t')) --end;
+    const char* b = p;
+    while (b < end && (*b == ' ' || *b == '\t')) ++b;
+    if (b == end) return true;            // blank: verse break, not a line
+    ++out.plainTotal;
+    int n = (int)(end - p);
+    if (out.n >= MAX_LINES || out.used + n + 1 > TEXT_CAP) return false;
+    memcpy(out.text + out.used, p, n);
+    out.text[out.used + n] = '\0';
+    out.lines[out.n++] = {0, (uint16_t)out.used};
+    out.used += n + 1;
+    return true;
+}
+
+void spreadPlain(Lyrics& out, uint32_t durationMs) {
+    int total = out.plainTotal > out.n ? out.plainTotal : out.n;
+    if (total <= 0) return;
+    uint64_t start = (uint64_t)durationMs / 10, span = (uint64_t)durationMs * 8 / 10;
+    for (int i = 0; i < out.n; ++i)
+        out.lines[i].tMs = durationMs ? (uint32_t)(start + span * (uint64_t)i / (uint64_t)total)
+                                      : (uint32_t)i * 4000u;
 }
 
 int parse(const char* lrc, Lyrics& out) {

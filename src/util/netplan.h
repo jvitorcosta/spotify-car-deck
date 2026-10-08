@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "lyricstatus.h"
 // What the network task does next. PURE, host-tested.
 // The task polls Spotify on a fixed cadence and, between polls, does ONE per-track
 // work step at a time so a slow download never delays the next poll by more than
@@ -84,7 +85,8 @@ struct Work { bool walk, art, lyrics, prefetch; };   // true = still to do
 Work freshWork(bool walkerReady);
 // Next step in priority order: Art, Lyrics, Walk, Prefetch; None when all done.
 // Art and lyrics are what the listener waits for; the walker is usually prefetched.
-Step next(const Work& w);
+// lyricsReady false (waiting to retry): Lyrics is skipped for now.
+Step next(const Work& w, bool lyricsReady = true);
 void done(Work& w, Step s);
 
 // Memory gate (largest free byte-addressable block, mem::byteLargest()). mbedTLS needs a
@@ -92,4 +94,22 @@ void done(Work& w, Step s);
 // downloads use the fixed scratch buffer, so they need no more than that. Art is plain HTTP.
 constexpr unsigned TLS_NEED = 20000;
 bool canRun(Step s, unsigned largest);
+
+// Lyrics retries: a temporary error (HTTP 5xx/429, connect/TLS failure, timeout, stalled read)
+// retries after RETRY1_MS, then RETRY2_MS; the third gives up. Other results are final.
+// LRCLIB returned 503 on several requests while lyrics went missing (spec 2026-10-07).
+class LyricsRetry {
+public:
+    static constexpr uint32_t RETRY1_MS = 5000;
+    static constexpr uint32_t RETRY2_MS = 20000;
+    void reset() { attempts_ = 0; waiting_ = false; }   // new track
+    // Records one attempt; true when no further attempt will be made for this track.
+    bool onResult(lyricstatus::Result r, uint32_t nowMs);
+    bool ready(uint32_t nowMs) const { return !waiting_ || nowMs - since_ >= wait_; }   // wrap-safe
+    int attempts() const { return attempts_; }
+private:
+    int attempts_ = 0;
+    bool waiting_ = false;
+    uint32_t since_ = 0, wait_ = 0;
+};
 }

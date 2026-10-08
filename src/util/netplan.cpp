@@ -14,9 +14,9 @@ bool TrackGen::update(const char* track) {
 
 Work freshWork(bool walkerReady) { return {!walkerReady, true, true, true}; }
 
-Step next(const Work& w) {
+Step next(const Work& w, bool lyricsReady) {
     if (w.art) return Step::Art;
-    if (w.lyrics) return Step::Lyrics;
+    if (w.lyrics && lyricsReady) return Step::Lyrics;
     if (w.walk) return Step::Walk;
     if (w.prefetch) return Step::Prefetch;
     return Step::None;
@@ -41,6 +41,18 @@ bool canRun(Step s, unsigned largest) {
         case Step::None:     return true;
     }
     return true;
+}
+
+bool LyricsRetry::onResult(lyricstatus::Result r, uint32_t nowMs) {
+    ++attempts_;
+    if (r != lyricstatus::Result::TempError || attempts_ >= 3) {
+        waiting_ = false;
+        return true;
+    }
+    waiting_ = true;
+    since_ = nowMs;
+    wait_ = attempts_ == 1 ? RETRY1_MS : RETRY2_MS;
+    return false;
 }
 
 }
