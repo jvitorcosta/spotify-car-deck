@@ -4,6 +4,8 @@
 
 namespace net {
 static uint32_t lastCheck = 0;
+constexpr uint32_t CONNECT_TRY_MS = 8000;   // per network in connectAny()
+constexpr uint32_t CHECK_MS = 5000;         // loop(): reconnect check period
 
 bool connectAny() {
     WiFi.mode(WIFI_STA);
@@ -11,7 +13,7 @@ bool connectAny() {
         Serial.printf("[wifi] trying %s\n", WIFI_NETWORKS[i].ssid);
         WiFi.begin(WIFI_NETWORKS[i].ssid, WIFI_NETWORKS[i].pass);
         uint32_t start = millis();
-        while (millis() - start < 8000) {
+        while (millis() - start < CONNECT_TRY_MS) {
             if (WiFi.status() == WL_CONNECTED) {
                 Serial.printf("[wifi] connected to %s ip=%s\n",
                               WIFI_NETWORKS[i].ssid, WiFi.localIP().toString().c_str());
@@ -29,7 +31,7 @@ bool isOnline() { return WiFi.status() == WL_CONNECTED; }
 String deviceIp() { return WiFi.localIP().toString(); }
 
 void loop() {
-    if (millis() - lastCheck < 5000) return;
+    if (millis() - lastCheck < CHECK_MS) return;
     lastCheck = millis();
     if (!isOnline()) {
         Serial.println("[wifi] dropped, reconnecting...");

@@ -36,7 +36,7 @@ void done(Work& w, Step s) {
 
 bool canRun(Step s, unsigned largest) {
     switch (s) {
-        case Step::Art:      return largest >= 6000;
+        case Step::Art:      return largest >= ART_NEED;
         case Step::Lyrics:
         case Step::Genre:
         case Step::Walk:

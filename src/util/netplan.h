@@ -94,6 +94,7 @@ void done(Work& w, Step s);
 // 16.7 KB input buffer plus ~3 KB per handshake, so TLS steps wait below TLS_NEED. Walker
 // downloads use the fixed scratch buffer, so they need no more than that. Art is plain HTTP.
 constexpr unsigned TLS_NEED = 20000;
+constexpr unsigned ART_NEED = 6000;    // plain-HTTP art: socket + tjpgd chunks only
 bool canRun(Step s, unsigned largest);
 
 // Lyrics retries: a temporary error (HTTP 5xx/429, connect/TLS failure, timeout, stalled read)

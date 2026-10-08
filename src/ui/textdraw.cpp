@@ -69,9 +69,10 @@ int drawRun(TFT_eSPI& t, const glyphrun::Item* it, size_t n, int x, int y, uint1
 
 int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint16_t fg,
              uint16_t shadow, uint8_t datum, int maxW, bool upper) {
-    glyphrun::Item items[96];
-    size_t n = glyphrun::decode(utf8 ? utf8 : "", items, 96, asciiWidth2, wideWidth, &t, upper);
-    n = glyphrun::fit(items, n, 96, maxW, asciiWidth2, &t);
+    constexpr size_t MAX_ITEMS = 96;   // AppState strings are < 96 bytes
+    glyphrun::Item items[MAX_ITEMS];
+    size_t n = glyphrun::decode(utf8 ? utf8 : "", items, MAX_ITEMS, asciiWidth2, wideWidth, &t, upper);
+    n = glyphrun::fit(items, n, MAX_ITEMS, maxW, asciiWidth2, &t);
     return drawRun(t, items, n, x, y, fg, shadow, datum);
 }
 

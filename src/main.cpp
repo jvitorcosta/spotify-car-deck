@@ -43,7 +43,13 @@ static const char* resetReason() {
 
 // UI loop (core 1): draws only. All network/SD work runs in core/nettask on core 0 and
 // arrives through core/shared (README "Design & performance history").
-TFT_eSPI tft = TFT_eSPI();
+static TFT_eSPI tft = TFT_eSPI();
+
+constexpr uint32_t STALE_MS = 20000;      // "No signal" once the last good poll is this old
+constexpr uint32_t CD_FRAME_MS = 160;     // spinning CD + Poke Ball, ~6 fps
+constexpr uint32_t PROGRESS_MS = 250;     // time, HP/EXP bars, dialogue box
+constexpr uint32_t NOTES_MS = 330;        // note icons bob ~3 steps/s
+constexpr uint32_t WALK_FRAME_MS = 120;   // walker ~8 fps
 
 // The art box and the decoded bitmap are the same 92x92 area (pushArtIfValid pushes it whole).
 static_assert(ui::ART_W == art::W && ui::ART_H == art::H, "art box and bitmap sizes differ");
@@ -129,7 +135,7 @@ void loop() {
     // Screen mode: deck when playing/paused; a status screen when offline or stopped.
     int mode = 0;   // 0 = deck, 1 = offline, 2 = nothing playing
     if (!net::isOnline() || st.status == PlaybackStatus::Offline ||
-        netplan::stale(millis(), st.lastPollOkMs, 20000)) mode = 1;
+        netplan::stale(millis(), st.lastPollOkMs, STALE_MS)) mode = 1;
     else if (st.status == PlaybackStatus::Stopped) mode = 2;
 
     static int lastMode = -1;
@@ -183,12 +189,12 @@ void loop() {
             strcpy(g_topSig, sig);
             ui::drawTopStrip(tft, st);
         }
-        if (st.isPlaying && now - lastCd >= 160) {   // spinning CD ~6 fps
+        if (st.isPlaying && now - lastCd >= CD_FRAME_MS) {   // spinning CD ~6 fps
             lastCd = now;
             ui::drawCdFrame(tft, cdFrame = (cdFrame + 1) & 3);
             ui::drawPokeballFrame(tft, ballFrame = (ballFrame + 1) % pokeball::FRAMES);
         }
-        if (now - lastDraw >= 250) {
+        if (now - lastDraw >= PROGRESS_MS) {
             lastDraw = now;
             ui::drawProgressRegion(tft, view);
             drawDialogue(view, shownGen);
@@ -198,7 +204,7 @@ void loop() {
         static int noteFrame = 0;
         static bool notesMoved = false;
         if (g_notesDance && st.isPlaying) {
-            if (now - lastNotes >= 330) {            // ~3 steps/s: alive, not distracting
+            if (now - lastNotes >= NOTES_MS) {            // ~3 steps/s: alive, not distracting
                 lastNotes = now;
                 ui::drawNoteFrame(tft, ++noteFrame & 0x7FFF);
                 notesMoved = true;
@@ -207,7 +213,7 @@ void loop() {
             ui::drawNoteFrame(tft, -1);
             notesMoved = false;
         }
-        if (walkerOn && now - lastWalk >= 120) {     // ~8 fps walker
+        if (walkerOn && now - lastWalk >= WALK_FRAME_MS) {     // ~8 fps walker
             lastWalk = now;
             if (st.isPlaying) walkStep++;
             ui::drawWalker(tft, view, animMs, walkStep);

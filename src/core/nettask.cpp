@@ -33,6 +33,11 @@ static bool s_spotifyReady = false;   // WiFi + spclient::begin() done
 static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot
 static uint32_t s_t0 = 0;
 
+constexpr uint32_t POLL_MS = 4000;          // now-playing poll
+constexpr uint32_t PLAYER_MS = 12000;       // device / volume / shuffle / repeat
+constexpr uint32_t WIFI_RETRY_MS = 5000;    // WiFi not up at boot: retry period
+constexpr uint32_t LOOP_DELAY_MS = 20;      // yield between work items
+
 static void tick() { s_t0 = millis(); }
 static void tock(const char* what) {
     Serial.printf("[net] %s %lums\n", what, (unsigned long)(millis() - s_t0));
@@ -146,13 +151,13 @@ static void run(void*) {
                 s_spotifyReady = true;
                 mem::log("late wifi");
             } else {
-                vTaskDelay(pdMS_TO_TICKS(5000));
+                vTaskDelay(pdMS_TO_TICKS(WIFI_RETRY_MS));
                 continue;
             }
         }
         net::loop();
         uint32_t now = millis();
-        if (first || now - lastPoll >= 4000) {
+        if (first || now - lastPoll >= POLL_MS) {
             first = false;
             lastPoll = now;
             PlaybackStatus before = s_st.status;
@@ -176,7 +181,7 @@ static void run(void*) {
             const char* id = s_st.trackUri[0] ? s_st.trackUri : s_st.trackName;   // URI: same-title songs differ
             if (s_gen.update(id)) onTrackChange();
             else shared::publish(s_st);
-        } else if (now - lastPlayer >= 12000) {
+        } else if (now - lastPlayer >= PLAYER_MS) {
             lastPlayer = now;
             tick();
             spclient::pollPlayerDetails(s_st);
@@ -197,7 +202,7 @@ static void run(void*) {
                 }
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
     }
 }
 

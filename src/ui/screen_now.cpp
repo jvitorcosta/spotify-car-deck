@@ -17,17 +17,18 @@
 #include "../util/lrcstream.h"
 #include "../images/walksprite.h"
 #include "../core/shared.h"
+#include "lyricmsg.h"
 
 namespace ui {
 
 // ---- layout (320x240 landscape) ----
-static const int INFO_X = 114, INFO_Y = 30, INFO_W = 198, INFO_H = 86;
-static const int STAT_X = 8, STAT_Y = 126, STAT_W = 304, STAT_H = 68;
-static const int BAR_X = 24, BAR_Y = 176, BAR_W = 280, BAR_H = 10;   // incl. "HP" tag
-static const int FILL_X = BAR_X + HP_TAG_W + 1, FILL_W = BAR_W - HP_TAG_W - 2;
-static const int EXP_Y = 188;
-static const int DLG_X = 4, DLG_Y = 198, DLG_W = 312, DLG_H = 41;
-static const int CD_CY = 10;
+static constexpr int INFO_X = 114, INFO_Y = 30, INFO_W = 198, INFO_H = 86;
+static constexpr int STAT_X = 8, STAT_Y = 126, STAT_W = 304, STAT_H = 68;
+static constexpr int BAR_X = 24, BAR_Y = 176, BAR_W = 280, BAR_H = 10;   // incl. "HP" tag
+static constexpr int FILL_X = BAR_X + HP_TAG_W + 1, FILL_W = BAR_W - HP_TAG_W - 2;
+static constexpr int EXP_Y = 188;
+static constexpr int DLG_X = 4, DLG_Y = 198, DLG_W = 312, DLG_H = 41;
+static constexpr int CD_CY = 10;
 
 static int g_cdX = 100;   // set by drawTopStrip from the title width
 
@@ -57,7 +58,7 @@ void drawTopStrip(TFT_eSPI& t, const AppState& st) {
 
 // Spinning Poke Ball left of the time (it replaced the "HP " prefix); position follows the
 // time's width, frame advances with the top-bar CD (main.cpp).
-static const int BALL_Y = 130;
+static constexpr int BALL_Y = 130;
 static int g_ballX = -1;   // left edge, set by drawProgressRegion
 static int g_ballFrame = 0;
 
@@ -99,7 +100,7 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
 }
 
 void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
-    static const int SLACK = 8;
+    static constexpr int SLACK = 8;
     static walkrect::Rect prev{0, 0, 0, 0};
     static uint16_t buf[(walk::MAX_W + 2 * SLACK) * (walk::BAND_H + 1 + 2 * SLACK)];
     // The network task may promote() a new walker at any time; read frames under the lock.
@@ -174,8 +175,9 @@ void drawLyricArea(TFT_eSPI& t, const char* text, bool notes) {
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
     t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
     // static: keep the UI loop stack small; +3 slots so line b's "..." can be written in place
-    static glyphrun::Item items[163];
-    size_t n = glyphrun::decode(line, items, 160, asciiWidth2, wideWidth, &t);
+    constexpr size_t MAX_ITEMS = lyricmsg::TEXT_CAP;   // one item per byte at most
+    static glyphrun::Item items[MAX_ITEMS + 3];
+    size_t n = glyphrun::decode(line, items, MAX_ITEMS, asciiWidth2, wideWidth, &t);
     if (!n) return;
     if (notes) drawNotes(t, -1);
     const int textW = iw - 2 * 18;
@@ -270,7 +272,7 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
                        theme::TEXT_SHADOW, TL_DATUM, 96, true);
     x += nmW + 6;
     if (st.pokedexNum > 0) {
-        char no[12];
+        char no[16];   // fits any int (the dex stops at 1025)
         snprintf(no, sizeof(no), "No.%04d", st.pokedexNum);
         if (x + (int)strlen(no) * typebadge::CHAR_W <= 204)
             shadowText(t, no, x, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);

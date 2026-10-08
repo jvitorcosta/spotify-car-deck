@@ -56,7 +56,7 @@ static inline bool bitAt(const uint8_t* bits, int x) { return (bits[x >> 3] >> (
 // by side. Pass 1 finds the opaque bounding box shared by all frames; pass 2 writes the
 // cropped, band-fitted frames straight into the staged slot. No full-size copy.
 enum class Res { Ok, Unsupported, Corrupt };
-static const int SHEET_MAX_W = 512;
+static constexpr int SHEET_MAX_W = 512;
 static int s_frameW, s_rowH, s_rowY0, s_frames, s_pass, s_k, s_kept, s_slot;
 static bool s_keyMode;                   // no alpha channel: top-left colour is transparent
 static uint16_t s_key;
@@ -139,7 +139,7 @@ static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW
 }
 
 // ---------------------------------------------------------------- PMD sheet
-static const int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, Right, ...
+static constexpr int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, Right, ...
 
 // Cache-or-download into the scratch buffer (NUL-terminated).
 // partial: the beginning is enough (AnimData.xml: Walk is anim index 0, near the top).

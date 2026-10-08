@@ -6,8 +6,7 @@ uint32_t currentProgressMs(uint32_t lastProgressMs, uint32_t durationMs,
     uint32_t p = lastProgressMs + msSincePoll;
     return (p > durationMs) ? durationMs : p;
 }
-}
-namespace interp {
+
 int walkX(float frac, int barX, int barW, int spriteW) {
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
