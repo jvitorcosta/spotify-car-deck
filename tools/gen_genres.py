@@ -13,16 +13,17 @@ import urllib.request
 TREE_URL = "https://itunes.apple.com/WebObjects/MZStoreServices.woa/ws/genres?id=34&cc=br"
 OUT = os.path.join(os.path.dirname(__file__), "..", "src", "ui", "genre_data.inc")
 
+# Colours follow genre associations (rap black, R&B brown, China red, Brazil green/yellow ...).
 # Badge order is the runtime index; "???" must stay last (unknown-id fallback).
 BADGES = [
-    ("POP", 0xF070A8), ("K-POP", 0xD040C0), ("J-POP", 0xF08890), ("RAP", 0xC89818),
-    ("R&B", 0xA04880), ("FUNK", 0xE07020), ("ROCK", 0xB83030), ("METAL", 0x505058),
+    ("POP", 0xF070A8), ("K-POP", 0xD040C0), ("J-POP", 0xF08890), ("RAP", 0x2A2A2E),
+    ("R&B", 0x6B4226), ("FUNK", 0xE07020), ("ROCK", 0x8C1C24), ("METAL", 0x505058),
     ("ALT", 0x6858A8), ("ELECTRO", 0x18A8D8), ("DANCE", 0x20B898), ("BRASIL", 0x1E9E4E),
     ("FUNK BR", 0xE0B000), ("SERTANEJO", 0xA87030), ("MPB", 0x2E8C80), ("SAMBA", 0xE89818),
     ("PAGODE", 0x58A838), ("FORRO", 0xC85828), ("AXE", 0xF07800), ("LATIN", 0xE05040),
     ("REGGAE", 0x3C8C28), ("JAZZ", 0x3858A0), ("GOSPEL", 0xC0A048), ("CLASSIC", 0x8C6A48),
-    ("OST", 0x687898), ("COUNTRY", 0xA08048), ("FOLK", 0x788C48), ("AFRO", 0x9C5CD8),
-    ("CHINESE", 0xD0103A), ("WORLD", 0x4890B0), ("???", 0x8890A0),
+    ("OST", 0x687898), ("COUNTRY", 0xA08048), ("FOLK", 0x788C48), ("AFRO", 0xC89818),
+    ("CHINESE", 0xE8182C), ("WORLD", 0x4890B0), ("???", 0x8890A0),
 ]
 TOP = {
     14: "POP", 50000066: "POP", 50000064: "POP", 18: "RAP", 15: "R&B", 21: "ROCK", 20: "ALT",

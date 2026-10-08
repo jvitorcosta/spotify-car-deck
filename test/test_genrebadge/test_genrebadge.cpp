@@ -59,6 +59,16 @@ void test_chinese_genres_are_chinese() {
     TEST_ASSERT_EQUAL_STRING("K-POP", L(51));      // neighbours unchanged
     TEST_ASSERT_EQUAL_STRING("WORLD", L(1243));    // Coreano (traditional Korean)
 }
+// Colours follow what people associate with the genre (user review 2026-10-08).
+static uint16_t C(uint32_t id) { return genrebadge::at(genrebadge::forGenreId(id)).color; }
+void test_colours_match_genre_associations() {
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x2A, 0x2A, 0x2E), C(18));     // RAP: black
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x6B, 0x42, 0x26), C(15));     // R&B: chocolate brown
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xE8, 0x18, 0x2C), C(1232));   // CHINESE: China red
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x8C, 0x1C, 0x24), C(21));     // ROCK: maroon
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xC8, 0x98, 0x18), C(1203));   // AFRO: savanna gold
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x1E, 0x9E, 0x4E), C(1122));   // BRASIL: green (unchanged)
+}
 void test_overrides_beat_parent() {
     TEST_ASSERT_EQUAL_STRING("K-POP", L(51));
     TEST_ASSERT_EQUAL_STRING("FUNK", L(1139));
@@ -104,6 +114,7 @@ int main(int, char**) {
     RUN_TEST(test_subgenres_take_parent_badge);
     RUN_TEST(test_african_genres_are_afro);
     RUN_TEST(test_chinese_genres_are_chinese);
+    RUN_TEST(test_colours_match_genre_associations);
     RUN_TEST(test_overrides_beat_parent);
     RUN_TEST(test_unknown_is_question_marks);
     RUN_TEST(test_badges_fit_and_colours_are_distinct);
