@@ -224,9 +224,9 @@ static void drawBadge(TFT_eSPI& t, int x, int y, int w, int h, const char* label
     shadowText(t, label, x + w / 2, y + h / 2, 1, TFT_WHITE, edge, MC_DATUM);
 }
 
-// Info box, artist row: [GENRE] Artist. Without a badge the name keeps the full width.
+// Info box, first row: [GENRE] Artist. Without a badge the name keeps the full width.
 void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
-    const int TW = INFO_W - 26, x0 = INFO_X + 8, y = INFO_Y + 32;
+    const int TW = INFO_W - 26, x0 = INFO_X + 8, y = INFO_Y + 8;
     t.fillRect(x0, y - 1, TW, 19, theme::BOX_FILL);
     int x = x0, maxW = TW;
     if (genre != genre::NONE && genre < genrebadge::count()) {
@@ -250,9 +250,9 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
     // info box (opponent-style, slanted right end)
     battleBox(t, INFO_X, INFO_Y, INFO_W, INFO_H, Tab::Right);
     const int TW = INFO_W - 26;
-    drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 8,
-             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
     drawArtistRow(t, st, genre);
+    drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 32,
+             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
     char from[96];
     snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
     drawText(t, from, INFO_X + 8, INFO_Y + 58, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
