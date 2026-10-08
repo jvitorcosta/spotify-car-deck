@@ -2,6 +2,7 @@
 #include <TFT_eSPI.h>
 #include "pins.h"
 #include "net/wifi.h"
+#include "net/clock.h"
 #include "spotify/auth.h"
 #include "spotify/client.h"
 #include "app_state.h"
@@ -12,6 +13,9 @@
 #include "ui/cjkdata.h"
 #include "ui/pokeball.h"
 #include "ui/lyricmsg.h"
+#include "ui/backlight.h"
+#include "ui/theme.h"
+#include "util/daynight.h"
 #include "util/genre.h"
 #include "util/interp.h"
 #include "util/netplan.h"
@@ -50,6 +54,7 @@ constexpr uint32_t CD_FRAME_MS = 160;     // spinning CD + Poke Ball, ~6 fps
 constexpr uint32_t PROGRESS_MS = 250;     // time, HP/EXP bars, dialogue box
 constexpr uint32_t NOTES_MS = 330;        // note icons bob ~3 steps/s
 constexpr uint32_t WALK_FRAME_MS = 120;   // walker ~8 fps
+constexpr uint32_t MODE_CHECK_MS = 10000; // day/night check (18:00-06:00 Manaus)
 
 // The art box and the decoded bitmap are the same 92x92 area (pushArtIfValid pushes it whole).
 static_assert(ui::ART_W == art::W && ui::ART_H == art::H, "art box and bitmap sizes differ");
@@ -105,12 +110,14 @@ void setup() {
     }
     cache::begin();
     s_tft.init(); s_tft.invertDisplay(true); s_tft.setRotation(1); s_tft.fillScreen(TFT_BLACK);
+    backlight::begin();
     s_tft.setTextColor(TFT_WHITE, TFT_BLACK);
     s_tft.drawString("Connecting WiFi...", 10, 10, 2);
 
     bool spotifyReady = false;
     if (net::connectAny()) {
         mem::log("boot+wifi");
+        netclock::begin();
         s_tft.fillScreen(TFT_BLACK);
         s_tft.drawString("Spotify auth...", 10, 10, 2);
         if (spauth::loadRefreshToken().isEmpty()) {
@@ -123,6 +130,29 @@ void setup() {
         s_tft.drawString("WiFi not found - retrying...", 10, 40, 2);
     }
     nettask::start(spotifyReady);   // always: it keeps retrying WiFi if the hotspot is late
+}
+
+// Night mode: every MODE_CHECK_MS, picks the palette and backlight for the Manaus time. True
+// when the mode changed (the caller redraws the current screen). No clock yet -> day.
+static bool updateDayNight() {
+    static uint32_t lastCheck = 0;
+    static bool first = true, loggedSync = false;
+    uint32_t now = millis();
+    if (!first && now - lastCheck < MODE_CHECK_MS) return false;
+    first = false;
+    lastCheck = now;
+    int m = 0;
+    bool synced = netclock::minuteOfDay(&m);
+    if (synced && !loggedSync) {
+        loggedSync = true;
+        Serial.printf("[clock] synced, Manaus %02d:%02d\n", m / 60, m % 60);
+    }
+    bool night = synced && daynight::isNight(m);
+    if (night == theme::isNightActive()) return false;
+    theme::setNight(night);
+    backlight::set(night);
+    Serial.printf("[ui] night mode %s\n", night ? "on" : "off");
+    return true;
 }
 
 void loop() {
@@ -142,6 +172,7 @@ void loop() {
     static uint32_t shownGen = 0;
     static bool walkerOn = false;
     static uint8_t shownGenre = genre::NONE;   // badge for the track on screen
+    if (updateDayNight()) lastMode = -1;   // redraw the deck or the status screen in the new palette
     if (mode != 0) {
         if (lastMode != mode) {   // draw the status screen once (no flicker)
             ui::drawOffline(s_tft, mode == 1 ? "No signal..." : "Nothing playing");

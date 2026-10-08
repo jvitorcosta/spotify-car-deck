@@ -4,6 +4,7 @@
 #include "shared.h"
 #include "mem.h"
 #include "../net/wifi.h"
+#include "../net/clock.h"
 #include "../spotify/client.h"
 #include "../images/art.h"
 #include "../images/walksprite.h"
@@ -148,6 +149,7 @@ static void run(void*) {
         if (!s_spotifyReady) {                 // WiFi wasn't up at boot: keep trying
             if (net::isOnline() || net::connectAny()) {
                 spclient::begin();
+                netclock::begin();
                 s_spotifyReady = true;
                 mem::log("late wifi");
             } else {
