@@ -1,5 +1,5 @@
 #pragma once
-// ESP32-2432S028R "Cheap Yellow Display" pin map. See plan Global Constraints.
+// ESP32-2432S028R "Cheap Yellow Display" pin map.
 
 // Display (ILI9341) — configured via TFT_eSPI build flags; mirrored here for clarity.
 // Touch (XPT2046) — SEPARATE SPI bus (HSPI).

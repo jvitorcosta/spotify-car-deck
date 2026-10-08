@@ -4,8 +4,8 @@
 namespace txt {
 // Copy src -> dst (at most n bytes incl. NUL), converting UTF-8 Latin-1 accented
 // letters to their ASCII base (á->a, ç->c, ã->a, É->E, ...). Other non-ASCII
-// multibyte sequences are dropped. Needed because the display fonts are ASCII-only
-// and Spotify returns names in UTF-8. Pure (no Arduino) so it is unit-tested.
+// multibyte sequences are dropped. The display now draws through foldMarks + glyph runs
+// (accent marks, CJK); this plain fold remains for tests and simple ASCII-only uses. Pure.
 void asciiFold(const char* src, char* dst, size_t n);
 // Accent carried by a folded character, so the UI can draw it over the ASCII glyph.
 enum class Mark : uint8_t { None, Acute, Grave, Circumflex, Tilde, Diaeresis, Cedilla, Ring };

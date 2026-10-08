@@ -1,6 +1,6 @@
 # Lyrics reliability and dialogue-box messages: design
 
-Date: 2026-10-07. Status: approved in brainstorming, awaiting written-spec review.
+Date: 2026-10-07. Status: implemented (main, f45da1a).
 
 ## Problem
 

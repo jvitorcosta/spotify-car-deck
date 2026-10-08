@@ -35,7 +35,6 @@ Open items, not scheduled. Newest decisions first within each section.
 - Test gaps vs the spec: real Apple answers for Pop 14 / Brasileira 1122, every badge's colour,
   and "network errors are not cached" (device code in nettask).
 - The artist cache is FIFO, not LRU: an artist on repeat is evicted after 32 newer ones.
-- README item 14 says "after the lyrics"; the step also fills the wait before a lyrics retry.
 
 ## Parked: SD card cache (not used)
 
@@ -72,8 +71,8 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
   and walker at 2x (pixel doubling), 14-16 px HP bar; (B) name row unchanged, a large
   time-remaining readout next to a 2x walker, thicker HP bar. The lyrics status
   (lyricstatus::Status::None / Instrumental) now reports that final state.
-
 - Car power: brownout behaviour on noisy USB during engine start (`[boot] reset reason`
   now says "brownout" if it happens).
-- Touch controls (play/pause/skip).
+- Touch controls (play/pause/skip). The unused groundwork (Spotify play/next/prev/volume
+  calls, button widgets) was removed in the 2026-10-08 cleanup; see git history.
 - Korean / emoji / Cyrillic lyrics (render blank today; spec non-goal).

@@ -10,9 +10,9 @@ NowButtons nowButtons();
 // Album art target rect inside the art battle box (main pushes the cover here).
 constexpr int ART_X = 11, ART_Y = 27, ART_W = 92, ART_H = 92;
 
-// Full Gen-3 battle deck: background, top strip, art box, info box, status box,
-// dialogue box. Called on track change / return from a status screen.
-// Full deck. genre: genrebadge index for the artist row, or genre::NONE (no badge yet/none).
+// Full Gen-3 battle deck: background, top strip, art box, info box, status box, dialogue box.
+// Called on track change / return from a status screen. genre: genrebadge index for the
+// artist row, or genre::NONE (no badge yet / none).
 void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre);
 // Repaints only the artist row in the info box (badge + name) when the genre arrives.
 void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre);
@@ -27,7 +27,6 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st);
 // Walker on the HP bar. animMs = play-time animation clock (PMD frame timing);
 // step = frame counter (fallback bob/mirror).
 void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step);
-// Current lyric line in the dialogue box (redraws only when the text changes).
 // Dialogue-box text (a lyric line or a status message), redrawn only when it changes.
 // notes: draw the note icons (off for plain lyrics, whose timing is approximate).
 void drawLyricArea(TFT_eSPI& t, const char* text, bool notes);

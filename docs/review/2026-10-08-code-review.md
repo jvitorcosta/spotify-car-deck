@@ -129,12 +129,12 @@ These are candidates for `docs/BACKLOG.md`, each needing a board session.
 | 6 | Optional CI workflow and `pio check` | none (repo only) | workflow green |
 | 7 | Defect fixes (G), each test-first where pure, as `fix:` commits | behaviour fix | targeted test; board session (play an ad if possible) |
 
-## Decisions needed
+## Decisions (2026-10-08)
 
-- **D1** Touch-control leftovers (`togglePlay`, `widgets`, `NowButtons`): remove now, or keep for the backlog idea?
-- **D2** Include Phase 6 (CI + static analysis)?
-- **D3** Fix the defects in G as part of this effort (recommended for G1), or separately?
-- **D4** Rename file-static prefixes to one convention (`s_`) — worthwhile churn, or skip?
+- **D1** Touch-control leftovers: **remove now**, keep the idea in the backlog (code in git history).
+- **D2** **Add CI** (GitHub Actions: firmware build + host tests).
+- **D3** **Fix the defects in G** (G1–G3) as part of this effort, as `fix:` commits.
+- **D4** Prefix renaming (`s_` for file-static state): **yes, on a separate branch** after D1–D3 land.
 
 ## Sources (best-practice research)
 

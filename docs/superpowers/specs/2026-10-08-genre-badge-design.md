@@ -1,6 +1,6 @@
 # Genre badge: design
 
-Date: 2026-10-08. Status: approved in brainstorming (sections 1–2, colour preview), awaiting
+Date: 2026-10-08. Status: implemented (main, 3ccf495; AFRO/CHINESE aca6c90, colours 6836503). Was:
 written-spec review.
 
 ## Goal

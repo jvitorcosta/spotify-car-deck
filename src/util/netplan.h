@@ -7,11 +7,12 @@
 // one step (see README "Design & performance history").
 namespace netplan {
 
-// Track-change detection from successive now-playing names.
+// Track-change detection from successive now-playing ids (the track URI; the name only when
+// there is no URI), so two songs with the same title still count as a change.
 class TrackGen {
 public:
     // True (and the generation increments) when `track` is non-empty and differs
-    // from the last non-empty name seen.
+    // from the last non-empty id seen.
     bool update(const char* track);
     uint32_t gen() const { return gen_; }
 private:

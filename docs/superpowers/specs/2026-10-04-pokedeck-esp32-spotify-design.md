@@ -1,7 +1,8 @@
 # PokeDeck — ESP32 Pokémon-Styled Spotify Deck
 
 **Date:** 2026-10-04
-**Status:** Approved design — ready for implementation planning
+**Status:** Implemented, partly superseded — the walker (§9) was replaced by
+`2026-10-06-merged-status-panel-pmd-walker-design.md`; touch controls were not built.
 
 ## 1. Summary
 

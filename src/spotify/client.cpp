@@ -31,7 +31,7 @@ static void onPlaying(CurrentlyPlaying cp) {
     // choose the ~300px image (index 1 is usually 300px; fall back to 0)
     const char* art = cp.numImages > 1 ? cp.albumImages[1].url : (cp.numImages > 0 ? cp.albumImages[0].url : nullptr);
     copyStr(st.albumArtUrl, art, sizeof(st.albumArtUrl));
-    copyStr(st.context, cp.contextUri, sizeof(st.context)); // refined to name in Task 14-opt
+    copyStr(st.context, cp.contextUri, sizeof(st.context)); // raw URI; poll() resolves the name
     st.progressMs = cp.progressMs;
     st.durationMs = cp.durationMs;
     st.isPlaying  = cp.isPlaying;

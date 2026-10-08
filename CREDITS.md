@@ -15,6 +15,12 @@
 - **Artist genres:** Apple's [iTunes Search API](https://performance-partners.apple.com/search-api);
   the genre id → badge table (`src/ui/genre_data.inc`) is generated from Apple's genre tree by
   `tools/gen_genres.py`.
+- **Libraries:** [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) (FreeBSD/MIT mix),
+  [ArduinoJson](https://arduinojson.org/) (MIT), [TJpg_Decoder](https://github.com/Bodmer/TJpg_Decoder)
+  (FreeBSD-style, tjpgd), [PNGdec](https://github.com/bitbank2/PNGdec) (Apache-2.0),
+  [spotify-api-arduino](https://github.com/witnessmenow/spotify-api-arduino) (MIT),
+  [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen) (MIT, hardware
+  check only), [Unity](https://github.com/ThrowTheSwitch/Unity) (MIT, host tests).
 - **Inspiration:** [intellij-pokemon-progress](https://github.com/kagof/intellij-pokemon-progress).
 - Pokémon © Nintendo / Creatures Inc. / GAME FREAK inc. This is a personal,
   non-commercial project.

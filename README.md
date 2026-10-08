@@ -19,8 +19,7 @@ hotspot.
   (Spotify only allows loopback `http` redirects, so the on-device portal can't be used).
 - Build/flash (this machine's wrapper): `.devtools\pio.ps1 run -e esp32dev -t upload --upload-port COM11`.
 - Host unit tests (Unity, compiled with g++ because `pio test -e native` is broken here):
-  `.devtools\ntest.ps1 test\<suite>\<suite>.cpp <module.cpp>` — suites: theme, icon_map,
-  animdata, walkanim, walkrect, textfit, walk, interp, lrc, text, dex, netplan.
+  run every suite with `powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1`.
 - Regenerate the bundled Pokédex: `python tools/gen_dex.py`; the status-screen sprite:
   `python tools/gen_status_sprite.py [dex]`.
 - Regenerate the CJK font: `python tools/gen_cjk_font.py [unifont_all-*.hex.gz]`.
@@ -34,7 +33,7 @@ hotspot.
 core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main.cpp)
   Spotify poll 4 s / player 12 s                          snapshot AppState every frame
   per track, one step at a time (util/netplan):           redraw deck on new track generation
-    album art -> lyrics -> walker -> prefetch next        take art / lyrics / walker from mailbox
+    art -> lyrics -> genre -> walker -> prefetch          take art / lyrics / genre / walker
   results tagged with trackGen                            animate: walker 8 fps, CD 6 fps, HP 4 fps
                  \                                        /
                   +---- src/core/shared.cpp (one mutex) -+
@@ -52,8 +51,15 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
   one while the network task loads the next song's walker into the staged one. Fallback:
   the PokeAPI sprite with a bob/flip fake walk.
 - **Pokémon** — random #1–1025 from a bundled Pokédex (`pokemon/dex`, generated).
-- **Pure, host-tested modules** — `ui/theme`, `ui/icon_map`, `pokemon/dex`,
-  `util/{animdata,walkanim,walkrect,netplan,textfit,interp,lrc,text}`.
+- **Lyrics** (`lyrics/lrclib`, `util/lrcstream`, `util/lyricbuf`) — LRCLIB `/api/get`, then
+  `/api/search`; synced beats plain; retries on server errors; the dialogue box shows
+  Pokémon-style status messages (`ui/lyricmsg`) when there is no line to show.
+- **Genre badge** (`genre/apple`, `util/genre`, `ui/genrebadge`) — Apple artist genre, cached
+  per artist, mapped to Gen-3 style badges.
+- **Pure, host-tested modules** (one suite each under `test/`) — `ui/{theme,icon_map,accents,
+  cjkfont,status_sprite,typebadge,genrebadge,lyricmsg,pokeball,labels}`, `pokemon/dex`,
+  `util/{animdata,walkanim,walkrect,netplan,lyricstatus,interp,text,glyphrun,lrcstream,
+  lyricbuf,artmap,ctxcache,dexset,genre}`.
 
 ## Design & performance history
 
@@ -169,7 +175,8 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
     song showed 46 lines; before, both would have shown an empty box.
 14. **Genre badge.** Spotify no longer returns artist genres to this app, so the genre comes
     from Apple's iTunes Search API (artist search, no key, ~300 B): one request per new artist
-    after the lyrics (~1.5 s, on the network task), 32 artists cached. Apple's 478 genre ids map
+    alongside the lyrics (~1.5 s on the network task; it also fills a lyrics-retry wait),
+    32 artists cached. Apple's 478 genre ids map
     to 31 Gen-3 style badges (`tools/gen_genres.py` → `src/ui/genre_data.inc`: subgenres take
     the parent's badge, with overrides such as Baile Funk → FUNK BR); unknown ids show a grey
     `???`, a nod to Gen 3's mystery type.

@@ -24,13 +24,13 @@ namespace nettask {
 static AppState s_st{};            // this task's private copy; published after changes
 static netplan::TrackGen s_gen;
 static netplan::Work s_work{};
-static netplan::LinkGate s_link;
-static netplan::Health s_health;
+static netplan::LinkGate s_link;   // "No signal" only after several failed polls in a row
+static netplan::Health s_health;   // pause optional work / restart when polls keep failing
 static netplan::LyricsRetry s_lyricsRetry;   // 5 s / 20 s retries after LRCLIB hiccups
 static genre::Cache s_genres;   // last 32 artists' badges: repeats cost no request
 static uint32_t s_failsAtOk = 0;   // mem::failTotal() at the last good poll
-static bool s_spotifyReady = false;   // WiFi + spclient::begin() done   // pause optional work / restart when polls keep failing   // "No signal" only after several failed polls in a row
-static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot (Task 12)
+static bool s_spotifyReady = false;   // WiFi + spclient::begin() done
+static int s_prefetchDex = 0;      // dex whose walker sits in the staged slot
 static uint32_t s_t0 = 0;
 
 static void tick() { s_t0 = millis(); }
@@ -201,8 +201,9 @@ static void run(void*) {
     }
 }
 
-// Stack: measured high-water mark ~5.3 KB of 16 KB (TLS + JSON); 10 KB leaves margin
-// and returns 6 KB of heap, which album-art and TLS buffers were running short of.
+// Stack: 10 KB (was 16 KB; the 6 KB went back to the heap, which album-art and TLS buffers
+// were short of). Lowest free seen ~3.7 KB, i.e. ~6.3 KB used by TLS + JSON + the lyrics
+// reader ([mem] stackfree=, README "Design & performance history" item 12).
 void start(bool spotifyReady) {
     s_spotifyReady = spotifyReady;
     xTaskCreatePinnedToCore(run, "net", 10240, nullptr, 1, nullptr, 0);

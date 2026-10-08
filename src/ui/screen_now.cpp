@@ -20,7 +20,7 @@
 
 namespace ui {
 
-// ---- layout (see spec §2) ----
+// ---- layout (320x240 landscape) ----
 static const int INFO_X = 114, INFO_Y = 30, INFO_W = 198, INFO_H = 86;
 static const int STAT_X = 8, STAT_Y = 126, STAT_W = 304, STAT_H = 68;
 static const int BAR_X = 24, BAR_Y = 176, BAR_W = 280, BAR_H = 10;   // incl. "HP" tag
@@ -151,7 +151,8 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
 }
 
 // Fixed buffer, not std::string: the UI loop shouldn't touch the heap on lyric changes.
-// Lyric lines are at most lrcstream::LINE_CAP - 1 bytes, so a full compare always fits.
+// Text reaching here is at most 159 bytes (shared::LyricView / lyricmsg::TEXT_CAP), well under
+// LINE_CAP, so a full compare always fits.
 static char g_lastLyric[lrcstream::LINE_CAP] = "\x01";   // never a real line -> forces a draw
 void resetLyricArea() { g_lastLyric[0] = '\x01'; g_lastLyric[1] = '\0'; }
 
