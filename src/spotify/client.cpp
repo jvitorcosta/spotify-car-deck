@@ -21,6 +21,16 @@ static void copyStr(char* dst, const char* src, size_t n) {
 
 static void onPlaying(CurrentlyPlaying cp) {
     AppState& st = *target;
+    // Ads (free accounts) and unknown items: SpotifyArduino leaves trackName, trackUri,
+    // artists, albumName and the images uninitialised (it only fills them for track/episode),
+    // so none of them may be read. Show the "Nothing playing" screen until music resumes; the
+    // last song's fields stay as they were, so no new track is detected for the ad.
+    if (cp.currentlyPlayingType != track && cp.currentlyPlayingType != episode) {
+        st.isPlaying = cp.isPlaying;
+        st.lastPollMs = millis();
+        st.status = PlaybackStatus::Stopped;
+        return;
+    }
     // Store ORIGINAL (UTF-8) names so LRCLIB lyric matching works for accented
     // titles; accents are folded to ASCII at display time instead.
     copyStr(st.trackName, cp.trackName, sizeof(st.trackName));
@@ -115,6 +125,10 @@ static bool resolveContext(const char* uri, char* out, size_t n) {
     if (!https.begin(c, url)) return false;
     https.addHeader("Authorization", g_accessToken);
     int rc = https.GET();
+    // 401: the cached access token was revoked or expired early. Expire it now so the next
+    // lookup refreshes it, instead of failing until the 50-minute expiry. (The timestamp, not
+    // the String: g_accessToken's heap block stays where it is.)
+    if (rc == 401) g_tokenExpiry = millis();
     bool ok = rc == 403 || rc == 404;
     if (rc == 200) {
         JsonDocument d;

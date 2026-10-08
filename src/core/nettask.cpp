@@ -170,10 +170,11 @@ static void run(void*) {
             // or no block big enough for TLS. A dead zone or a 401/429 is not that.
             bool starved = mem::failTotal() != s_failsAtOk || mem::byteLargest() < netplan::TLS_NEED;
             if (!ok) mem::log("poll failed");
-            if (s_health.onPoll(ok, net::isOnline(), starved, now) == netplan::Health::Action::Restart) {
+            const bool wifiUp = net::isOnline();   // one reading for the decision and the log
+            if (s_health.onPoll(ok, wifiUp, starved, now) == netplan::Health::Action::Restart) {
                 mem::log("restart");
                 Serial.printf("[net] self-heal restart (%s)\n",
-                              net::isOnline() ? "heap starved, no good poll for 180 s" : "WiFi down for 15 min");
+                              wifiUp ? "heap starved, no good poll for 180 s" : "WiFi down for 15 min");
                 delay(200);
                 ESP.restart();
             }
