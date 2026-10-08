@@ -1,4 +1,8 @@
-"""Capture timestamped serial output: python tools/capture_serial.py COM11 600 out.log"""
+"""Capture timestamped serial output: python tools/capture_serial.py <port> <seconds> <out.log>
+
+<port> is the board's serial port, e.g. COM5 on Windows or /dev/ttyUSB0 on Linux (see
+`pio device list`). Needs pyserial (tools/requirements.txt). Opening the port resets the board.
+"""
 import sys
 import time
 

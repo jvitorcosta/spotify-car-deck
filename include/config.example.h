@@ -15,6 +15,6 @@ static const int WIFI_NETWORK_COUNT = 2;
 // Spotify requires http only for the loopback address. Register this EXACT URI in
 // your app dashboard (Settings -> Redirect URIs). Used by the PC auth helper.
 #define SPOTIFY_REDIRECT_URI  "http://127.0.0.1:8888/callback"
-// One-time refresh token, obtained on the PC via .devtools/spotify_auth.py.
+// One-time refresh token, obtained on the PC via `python tools/spotify_auth.py`.
 #define SPOTIFY_REFRESH_TOKEN ""
 #define SPOTIFY_MARKET        "BR"

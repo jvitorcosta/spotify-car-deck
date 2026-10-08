@@ -1,4 +1,4 @@
-# Runs every host test suite in test/ with .devtools\ntest.ps1, compiling each test together
+# Runs every host test suite in test/ with tools\ntest.ps1, compiling each test together
 # with the src/ modules it (transitively) #includes.
 #   powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1
 $root = Split-Path $PSScriptRoot -Parent
@@ -22,7 +22,7 @@ foreach ($t in Get-ChildItem test -Directory) {
     $seen = New-Object 'System.Collections.Generic.HashSet[string]'
     Deps $tf.FullName $seen
     $mods = @($seen | Where-Object { $_ -like "*.cpp" })
-    $o = & powershell -ExecutionPolicy Bypass -File .devtools\ntest.ps1 $tf.FullName @mods 2>&1
+    $o = & powershell -ExecutionPolicy Bypass -File tools\ntest.ps1 $tf.FullName @mods 2>&1
     if ($LASTEXITCODE -eq 0) { $pass++; Write-Host "PASS $($t.Name): $(($o | Select-String 'Tests').Line)" }
     else { $fail++; Write-Host "FAIL $($t.Name)"; $o | Select-Object -Last 15 }
 }

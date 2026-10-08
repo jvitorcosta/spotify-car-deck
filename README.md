@@ -12,20 +12,40 @@ hotspot.
 - Optional microSD card: caches walk sheets and sprites so repeats load instantly
   (without one the deck works, it just re-downloads).
 
-## Build & flash
+## Setup
 
-- Copy `include/config.example.h` to `src/config.h` and fill in the WiFi networks and the
-  Spotify app credentials. Get a refresh token on a PC with `python .devtools/spotify_auth.py`
-  (Spotify only allows loopback `http` redirects, so the on-device portal can't be used).
-- Build/flash (this machine's wrapper): `.devtools\pio.ps1 run -e esp32dev -t upload --upload-port COM11`.
-- Host unit tests (Unity, compiled with g++ because `pio test -e native` is broken here):
-  run every suite with `powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1`.
-- Regenerate the bundled Pokédex: `python tools/gen_dex.py`; the status-screen sprite:
-  `python tools/gen_status_sprite.py [dex]`.
-- Regenerate the CJK font: `python tools/gen_cjk_font.py [unifont_all-*.hex.gz]`.
-- Measure a session: `python tools/capture_serial.py COM11 600 session.log`, then
+Prerequisites: [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html)
+(or the VS Code extension), Python 3, a Spotify account and a
+[Spotify developer app](https://developer.spotify.com/dashboard) with the redirect URI
+`http://127.0.0.1:8888/callback`.
+
+1. Copy `include/config.example.h` to `src/config.h` (git-ignored) and fill in your WiFi
+   networks (first match wins, e.g. phone hotspot first) and the app's client id and secret.
+2. Get a refresh token on the PC: `python tools/spotify_auth.py` (opens the browser, writes the
+   token into `src/config.h`; Spotify only allows loopback `http` redirects, so this can't run
+   on the device).
+3. Build and flash: `pio run -e esp32dev -t upload` (add `--upload-port <port>` if needed;
+   `pio device list` shows ports). Serial log: `pio device monitor` (115200 baud).
+
+Hardware bring-up without WiFi/Spotify: `pio run -e hwcheck -t upload` (display, colours,
+orientation, touch; `src/hwcheck.cpp`).
+
+## Development
+
+- Host unit tests (Unity, compiled with g++ because `pio test -e native` doesn't work for this
+  layout): `powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1`. Needs g++ on PATH
+  (or `$env:MINGW_BIN`) and Unity once: `pio pkg install -e native -l throwtheswitch/Unity`.
+  One suite: `tools\ntest.ps1 test\<suite>\<suite>.cpp <module.cpp ...>`.
+- Generated, committed data (re-run only to update): Pokédex `python tools/gen_dex.py`,
+  status sprite `python tools/gen_status_sprite.py [dex]`, CJK font
+  `python tools/gen_cjk_font.py [unifont_all-*.hex.gz]` → `data/cjk16.bin`, genre badges
+  `python tools/gen_genres.py`.
+- Measure a session (`pip install -r tools/requirements.txt`):
+  `python tools/capture_serial.py <port> 600 session.log`, then
   `python tools/analyze_session.py session.log` (step timings, per-track arrival times,
   byte RAM, failed allocations, TLS errors, restarts).
+- `tools/patch_spotify_lib.py` runs before every build: it turns off the Spotify library's
+  debug mode, which would print the refresh token and client secret over serial.
 
 ## Architecture
 
