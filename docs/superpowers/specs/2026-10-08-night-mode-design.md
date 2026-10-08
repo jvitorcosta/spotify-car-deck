@@ -1,6 +1,6 @@
 # Night mode: design
 
-Date: 2026-10-08. Status: written-spec review.
+Date: 2026-10-08. Status: implemented (main, 8973b0e, 7590a4e, ecc2177).
 
 ## Goal
 
@@ -52,6 +52,11 @@ bool isNightActive();
 | dlgLine | #68A0B8 | #3A5A70 |
 | dlgFill | #F8F8F8 | #1C2430 |
 | dlgShadow | #D0D0D0 | #0A0E14 |
+| note (note icons) | #284860 | #6A90B0 |
+
+The Poke Ball outline uses the fixed `BALL_DARK` (#404040) in both modes. Clock module
+namespace is `netclock` (`clock` collides with the C library); the UTC offset lives in
+`util/daynight` so it is host-tested.
 
 - The top-strip text and "on" icons use `BOX_FILL` today; they move to `topText`, so at night
   they stay light on the dark strip instead of turning slate.

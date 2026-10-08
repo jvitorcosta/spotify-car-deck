@@ -76,10 +76,12 @@ core 0: network task (src/core/nettask.cpp)            core 1: UI loop (src/main
   Pokémon-style status messages (`ui/lyricmsg`) when there is no line to show.
 - **Genre badge** (`genre/apple`, `util/genre`, `ui/genrebadge`) — Apple artist genre, cached
   per artist, mapped to Gen-3 style badges.
+- **Night mode** (`util/daynight`, `net/clock`, `ui/backlight`) — 18:00–06:00 Manaus time
+  (SNTP, UTC-4): "Moonlit battle" palette (`ui/theme` `NIGHT`) and a dimmer backlight.
 - **Pure, host-tested modules** (one suite each under `test/`) — `ui/{theme,icon_map,accents,
   cjkfont,status_sprite,typebadge,genrebadge,lyricmsg,pokeball,labels}`, `pokemon/dex`,
   `util/{animdata,walkanim,walkrect,netplan,lyricstatus,interp,text,glyphrun,lrcstream,
-  lyricbuf,artmap,ctxcache,dexset,genre}`.
+  lyricbuf,artmap,ctxcache,dexset,genre,daynight}`.
 
 ## Design & performance history
 
