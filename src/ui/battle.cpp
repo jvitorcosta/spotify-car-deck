@@ -4,12 +4,12 @@
 namespace ui {
 
 void background(TFT_eSPI& t) {
-    t.fillRect(0, 20, 320, 98, theme::SKY);
-    t.fillRect(0, 118, 320, 4, theme::HORIZON);
-    t.fillRect(0, 122, 320, 118, theme::GRASS);
+    t.fillRect(0, 20, 320, 98, theme::pal().sky);
+    t.fillRect(0, 118, 320, 4, theme::pal().horizon);
+    t.fillRect(0, 122, 320, 118, theme::pal().grass);
 }
 
-void topStrip(TFT_eSPI& t) { t.fillRect(0, 0, 320, 20, theme::TOP_DARK); }
+void topStrip(TFT_eSPI& t) { t.fillRect(0, 0, 320, 20, theme::pal().top); }
 
 // Box silhouette: rectangle with one side slanted by c px over its height.
 static void shape(TFT_eSPI& t, int x, int y, int w, int h, Tab tab, int c, uint16_t col) {
@@ -26,9 +26,9 @@ static void shape(TFT_eSPI& t, int x, int y, int w, int h, Tab tab, int c, uint1
 
 void battleBox(TFT_eSPI& t, int x, int y, int w, int h, Tab tab) {
     const int c = (tab == Tab::None) ? 0 : 10;
-    shape(t, x + 3, y + 3, w, h, tab, c, theme::BOX_SHADOW);
-    shape(t, x, y, w, h, tab, c, theme::BOX_BORDER);
-    shape(t, x + 2, y + 2, w - 4, h - 4, tab, c > 2 ? c - 2 : 0, theme::BOX_FILL);
+    shape(t, x + 3, y + 3, w, h, tab, c, theme::pal().boxShadow);
+    shape(t, x, y, w, h, tab, c, theme::pal().boxBorder);
+    shape(t, x + 2, y + 2, w - 4, h - 4, tab, c > 2 ? c - 2 : 0, theme::pal().boxFill);
 }
 
 void shadowText(TFT_eSPI& t, const char* s, int x, int y, uint8_t font,
@@ -66,9 +66,9 @@ void expBar(TFT_eSPI& t, int x, int y, int w, float frac) {
 }
 
 void dialogueBox(TFT_eSPI& t, int x, int y, int w, int h) {
-    t.fillRoundRect(x, y, w, h, 4, theme::DLG_FRAME);
-    t.drawRoundRect(x + 2, y + 2, w - 4, h - 4, 3, theme::DLG_LINE);
-    t.fillRoundRect(x + 4, y + 4, w - 8, h - 8, 3, theme::DLG_FILL);
+    t.fillRoundRect(x, y, w, h, 4, theme::pal().dlgFrame);
+    t.drawRoundRect(x + 2, y + 2, w - 4, h - 4, 3, theme::pal().dlgLine);
+    t.fillRoundRect(x + 4, y + 4, w - 8, h - 8, 3, theme::pal().dlgFill);
 }
 
 }

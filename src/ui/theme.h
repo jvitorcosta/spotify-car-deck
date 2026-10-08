@@ -10,29 +10,31 @@ constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
     return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-// Gen-3 (FRLG/Emerald) battle palette. Approximations of the GBA games; tune on
-// the real panel, which renders colours differently from a PC screen.
-constexpr uint16_t SKY         = rgb(0xA8, 0xD8, 0xF8);
-constexpr uint16_t GRASS       = rgb(0x88, 0xC8, 0x78);
-constexpr uint16_t HORIZON     = rgb(0x60, 0xA8, 0x58);
-constexpr uint16_t BOX_FILL    = rgb(0xF8, 0xF8, 0xD8);
-constexpr uint16_t BOX_BORDER  = rgb(0x40, 0x48, 0x48);
-constexpr uint16_t BOX_SHADOW  = rgb(0x58, 0x70, 0x60);
-constexpr uint16_t TEXT        = rgb(0x40, 0x40, 0x40);
-constexpr uint16_t TEXT_SHADOW = rgb(0xD8, 0xD0, 0xB0);
+// Gen-3 (FRLG/Emerald) battle palette: colours that are the same day and night. The
+// mode-dependent ones are in Palette below. Approximations of the GBA games; tune on the real
+// panel, which renders colours differently from a PC screen.
 constexpr uint16_t HP_TAG      = rgb(0x48, 0x48, 0x48);
 constexpr uint16_t HP_TAG_TEXT = rgb(0xF8, 0xB8, 0x00);
 // Darker than first tuned (0x506058): red HP was 2.1:1 against it, hard to see in a car.
 constexpr uint16_t HP_EMPTY    = rgb(0x28, 0x30, 0x28);
 constexpr uint16_t EXP_BLUE    = rgb(0x40, 0xC8, 0xF8);
-constexpr uint16_t DLG_FRAME   = rgb(0x28, 0x48, 0x60);
-constexpr uint16_t DLG_LINE    = rgb(0x68, 0xA0, 0xB8);
-constexpr uint16_t DLG_FILL    = rgb(0xF8, 0xF8, 0xF8);
-constexpr uint16_t DLG_SHADOW  = rgb(0xD0, 0xD0, 0xD0);
-constexpr uint16_t TOP_DARK    = rgb(0x28, 0x30, 0x38);
-// Was 0x606870 (2.4:1 on the top strip): "off" icons vanished in daylight.
-constexpr uint16_t ICON_OFF    = rgb(0x80, 0x88, 0x90);
 constexpr uint16_t CD_SILVER   = rgb(0xC0, 0xC0, 0xC8);
+// Poke Ball outline: today's dark grey in both modes (the text colour turns cream at night).
+constexpr uint16_t BALL_DARK   = rgb(0x40, 0x40, 0x40);
+
+// Colours that change between day and night mode (18:00-06:00 Manaus, see util/daynight).
+// DAY is the original Gen-3 battle look; NIGHT the "Moonlit battle" one (spec 2026-10-08).
+struct Palette {
+    uint16_t top, topText, iconOff, sky, horizon, grass;       // top strip, scene
+    uint16_t boxFill, boxBorder, boxShadow, text, textShadow;  // battle boxes
+    uint16_t dlgFrame, dlgLine, dlgFill, dlgShadow, note;      // dialogue box, note icons
+};
+extern const Palette DAY;
+extern const Palette NIGHT;
+// Active palette (DAY at boot). UI loop only: read at draw time, never cached.
+const Palette& pal();
+void setNight(bool night);
+bool isNightActive();
 
 // Pokémon HP-bar colours (fill + lighter 2 px shine line on top).
 constexpr uint16_t HP_GREEN        = rgb(0x58, 0xD0, 0x80);

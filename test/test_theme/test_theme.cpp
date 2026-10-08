@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <math.h>
+#include <initializer_list>
 #include "../../src/ui/theme.h"
 
 void setUp() {}
@@ -77,14 +78,59 @@ void test_hp_and_volume_bars_stand_out_from_the_empty_track() {
     TEST_ASSERT_TRUE(contrast(theme::HP_RED, theme::HP_EMPTY) >= 4.0);   // last 20% of the song
     TEST_ASSERT_TRUE(contrast(theme::EXP_BLUE, theme::HP_EMPTY) >= 4.0);
 }
-void test_off_icons_visible_but_distinct_from_on() {
-    TEST_ASSERT_TRUE(contrast(theme::ICON_OFF, theme::TOP_DARK) >= 3.0);  // still visible
-    TEST_ASSERT_TRUE(contrast(theme::BOX_FILL, theme::ICON_OFF) >= 3.0);  // on vs off
+// DAY must be today's look exactly: night mode may not change the day screen.
+void test_day_palette_is_todays_colours() {
+    const theme::Palette& d = theme::DAY;
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x28, 0x30, 0x38), d.top);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xF8, 0xF8, 0xD8), d.topText);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x80, 0x88, 0x90), d.iconOff);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xA8, 0xD8, 0xF8), d.sky);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x60, 0xA8, 0x58), d.horizon);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x88, 0xC8, 0x78), d.grass);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xF8, 0xF8, 0xD8), d.boxFill);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x40, 0x48, 0x48), d.boxBorder);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x58, 0x70, 0x60), d.boxShadow);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x40, 0x40, 0x40), d.text);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xD8, 0xD0, 0xB0), d.textShadow);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x28, 0x48, 0x60), d.dlgFrame);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x68, 0xA0, 0xB8), d.dlgLine);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xF8, 0xF8, 0xF8), d.dlgFill);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xD0, 0xD0, 0xD0), d.dlgShadow);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x28, 0x48, 0x60), d.note);
 }
-void test_text_is_high_contrast() {
-    TEST_ASSERT_TRUE(contrast(theme::TEXT, theme::BOX_FILL) >= 7.0);
-    TEST_ASSERT_TRUE(contrast(theme::TEXT, theme::DLG_FILL) >= 7.0);
-    TEST_ASSERT_TRUE(contrast(theme::BOX_FILL, theme::TOP_DARK) >= 7.0);
+void test_night_palette_is_moonlit() {
+    const theme::Palette& n = theme::NIGHT;
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x18, 0x28, 0x4A), n.sky);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x2A, 0x32, 0x40), n.boxFill);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xE0, 0xDC, 0xC8), n.text);
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x1C, 0x24, 0x30), n.dlgFill);
+}
+// Read at a glance in a car, day and night.
+void test_text_is_high_contrast_in_both_palettes() {
+    for (const theme::Palette* p : {&theme::DAY, &theme::NIGHT}) {
+        TEST_ASSERT_TRUE(contrast(p->text, p->boxFill) >= 7.0);
+        TEST_ASSERT_TRUE(contrast(p->text, p->dlgFill) >= 7.0);
+        TEST_ASSERT_TRUE(contrast(p->topText, p->top) >= 7.0);
+    }
+}
+void test_off_icons_visible_but_distinct_from_on_in_both_palettes() {
+    for (const theme::Palette* p : {&theme::DAY, &theme::NIGHT}) {
+        TEST_ASSERT_TRUE(contrast(p->iconOff, p->top) >= 3.0);       // still visible
+        TEST_ASSERT_TRUE(contrast(p->topText, p->iconOff) >= 3.0);   // on vs off
+    }
+}
+void test_note_icons_visible_in_both_palettes() {
+    for (const theme::Palette* p : {&theme::DAY, &theme::NIGHT})
+        TEST_ASSERT_TRUE(contrast(p->note, p->dlgFill) >= 3.0);
+}
+void test_set_night_switches_the_active_palette() {
+    TEST_ASSERT_EQUAL_PTR(&theme::DAY, &theme::pal());           // boot: day
+    TEST_ASSERT_FALSE(theme::isNightActive());
+    theme::setNight(true);
+    TEST_ASSERT_EQUAL_PTR(&theme::NIGHT, &theme::pal());
+    TEST_ASSERT_TRUE(theme::isNightActive());
+    theme::setNight(false);
+    TEST_ASSERT_EQUAL_PTR(&theme::DAY, &theme::pal());
 }
 void test_be_swaps_bytes_for_push_image() {
     static_assert(theme::be(0x1234) == 0x3412, "constexpr");
@@ -99,11 +145,15 @@ void test_type_names_are_the_18_types() {
 }
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_set_night_switches_the_active_palette);
+    RUN_TEST(test_day_palette_is_todays_colours);
+    RUN_TEST(test_night_palette_is_moonlit);
+    RUN_TEST(test_text_is_high_contrast_in_both_palettes);
+    RUN_TEST(test_off_icons_visible_but_distinct_from_on_in_both_palettes);
+    RUN_TEST(test_note_icons_visible_in_both_palettes);
     RUN_TEST(test_be_swaps_bytes_for_push_image);
     RUN_TEST(test_type_names_are_the_18_types);
     RUN_TEST(test_hp_and_volume_bars_stand_out_from_the_empty_track);
-    RUN_TEST(test_off_icons_visible_but_distinct_from_on);
-    RUN_TEST(test_text_is_high_contrast);
     RUN_TEST(test_rgb565_primaries);
     RUN_TEST(test_hp_color_thresholds);
     RUN_TEST(test_hp_shine_follows_color);

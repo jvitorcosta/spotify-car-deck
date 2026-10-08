@@ -32,28 +32,28 @@ static constexpr int CD_CY = 10;
 
 static int s_cdX = 100;   // set by drawTopStrip from the title width
 
-void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, s_cdX, CD_CY, frame, theme::TOP_DARK); }
+void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, s_cdX, CD_CY, frame, theme::pal().top); }
 
 void drawTopStrip(TFT_eSPI& t, const AppState& st) {
     topStrip(t);
     const char* title = topTitle(st.isPlaying);
-    shadowText(t, title, 6, 2, 2, theme::BOX_FILL, theme::BOX_BORDER, TL_DATUM);
+    shadowText(t, title, 6, 2, 2, theme::pal().topText, theme::pal().boxBorder, TL_DATUM);
     s_cdX = 6 + t.textWidth(title, 2) + 10;
     drawCdFrame(t, 0);
 
-    int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, theme::BOX_FILL,
-                         theme::BOX_BORDER, TR_DATUM, 110);
+    int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, theme::pal().topText,
+                         theme::pal().boxBorder, TR_DATUM, 110);
     int devX = 314 - nameW - 4 - icons::SIZE;
-    drawIcon(t, icons::forDevice(st.deviceType), devX, 4, theme::BOX_FILL, theme::TOP_DARK);
+    drawIcon(t, icons::forDevice(st.deviceType), devX, 4, theme::pal().topText, theme::pal().top);
     int repX = devX - 18, shufX = repX - 16;
     drawIcon(t, icons::Icon::Repeat, repX, 4,
-             st.repeat ? theme::BOX_FILL : theme::ICON_OFF, theme::TOP_DARK);
+             st.repeat ? theme::pal().topText : theme::pal().iconOff, theme::pal().top);
     if (st.repeat == 2) {   // repeat-one: tiny "1"
         t.setTextColor(theme::HP_TAG_TEXT);
         t.drawString("1", repX + icons::SIZE, 9, 1);
     }
     drawIcon(t, icons::Icon::Shuffle, shufX, 4,
-             st.shuffle ? theme::BOX_FILL : theme::ICON_OFF, theme::TOP_DARK);
+             st.shuffle ? theme::pal().topText : theme::pal().iconOff, theme::pal().top);
 }
 
 // Spinning Poke Ball left of the time (it replaced the "HP " prefix); position follows the
@@ -71,8 +71,8 @@ static void drawBall(TFT_eSPI& t) {
             switch (pokeball::pixel(x, y, s_ballFrame)) {
                 case pokeball::Px::Red:   c = theme::POKE_RED; break;
                 case pokeball::Px::White: c = TFT_WHITE; break;
-                case pokeball::Px::Dark:  c = theme::TEXT; break;
-                default:                  c = theme::BOX_FILL; break;
+                case pokeball::Px::Dark:  c = theme::BALL_DARK; break;
+                default:                  c = theme::pal().boxFill; break;
             }
             buf[y * pokeball::SIZE + x] = theme::be(c);   // pushImage is big-endian
         }
@@ -91,8 +91,8 @@ void drawProgressRegion(TFT_eSPI& t, const AppState& st) {
     char tbuf[24];
     snprintf(tbuf, sizeof(tbuf), "%u:%02u/%u:%02u",
              rem / 60000, (rem / 1000) % 60, tot / 60000, (tot / 1000) % 60);
-    t.fillRect(206, 129, 100, 16, theme::BOX_FILL);   // clear the old time (and ball)
-    shadowText(t, tbuf, 304, 129, 2, theme::TEXT, theme::TEXT_SHADOW, TR_DATUM);
+    t.fillRect(206, 129, 100, 16, theme::pal().boxFill);   // clear the old time (and ball)
+    shadowText(t, tbuf, 304, 129, 2, theme::pal().text, theme::pal().textShadow, TR_DATUM);
     s_ballX = 304 - t.textWidth(tbuf, 2) - 4 - pokeball::SIZE;
     drawBall(t);
     hpBarBattle(t, BAR_X, BAR_Y, BAR_W, BAR_H, hpFrac);
@@ -125,9 +125,9 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
     int x0 = cx - w / 2, y0 = BAR_Y - h - bob;          // feet rest on the bar top
 
     walkrect::Plan p = walkrect::plan(prev, {x0, BAR_Y - h - 1, w, h + 1}, SLACK);
-    if (p.clearPrev) t.fillRect(prev.x, prev.y, prev.w, prev.h, theme::BOX_FILL);
+    if (p.clearPrev) t.fillRect(prev.x, prev.y, prev.w, prev.h, theme::pal().boxFill);
     const walkrect::Rect& r = p.push;
-    const uint16_t fillBE = theme::be(theme::BOX_FILL);
+    const uint16_t fillBE = theme::be(theme::pal().boxFill);
     for (int i = 0; i < r.w * r.h; ++i) buf[i] = fillBE;
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
@@ -156,10 +156,10 @@ static void drawNotes(TFT_eSPI& t, int frame) {
     const int xl = ix + 2, xr = ix + iw - 14;
     int dl = 0, dr = 0;
     if (frame >= 0) { dl = (frame & 1) ? 1 : -1; dr = -dl; }
-    t.fillRect(xl, y - 2, icons::SIZE, icons::SIZE + 4, theme::DLG_FILL);
-    t.fillRect(xr, y - 2, icons::SIZE, icons::SIZE + 4, theme::DLG_FILL);
-    drawIcon(t, icons::Icon::Note, xl, y + dl, theme::DLG_FRAME, theme::DLG_FILL);
-    drawIcon(t, icons::Icon::Note, xr, y + dr, theme::DLG_FRAME, theme::DLG_FILL);
+    t.fillRect(xl, y - 2, icons::SIZE, icons::SIZE + 4, theme::pal().dlgFill);
+    t.fillRect(xr, y - 2, icons::SIZE, icons::SIZE + 4, theme::pal().dlgFill);
+    drawIcon(t, icons::Icon::Note, xl, y + dl, theme::pal().note, theme::pal().dlgFill);
+    drawIcon(t, icons::Icon::Note, xr, y + dr, theme::pal().note, theme::pal().dlgFill);
 }
 
 void drawNoteFrame(TFT_eSPI& t, int frame) {
@@ -173,7 +173,7 @@ void drawLyricArea(TFT_eSPI& t, const char* text, bool notes) {
     txt::copy(s_lastLyric, line, sizeof(s_lastLyric));
 
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
-    t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);
+    t.fillRect(ix, iy, iw, ih, theme::pal().dlgFill);
     // static: keep the UI loop stack small; +3 slots so line b's "..." can be written in place
     constexpr size_t MAX_ITEMS = lyricmsg::TEXT_CAP;   // one item per byte at most
     static glyphrun::Item items[MAX_ITEMS + 3];
@@ -184,16 +184,16 @@ void drawLyricArea(TFT_eSPI& t, const char* text, bool notes) {
     glyphrun::Wrap w = glyphrun::wrapTwo(items, n, textW, 3 * asciiWidth2('.', &t));
     int cx = DLG_X + DLG_W / 2;
     if (w.bStart >= w.bEnd) {
-        drawRun(t, items, w.aEnd, cx, DLG_Y + 20, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawRun(t, items, w.aEnd, cx, DLG_Y + 20, theme::pal().text, theme::pal().dlgShadow, MC_DATUM);
     } else {
-        drawRun(t, items, w.aEnd, cx, DLG_Y + 12, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawRun(t, items, w.aEnd, cx, DLG_Y + 12, theme::pal().text, theme::pal().dlgShadow, MC_DATUM);
         size_t bn = w.bEnd - w.bStart;
         if (w.bEllipsis)   // items past bEnd are not drawn, so "..." can overwrite them
             for (int k = 0; k < 3; ++k)
                 items[w.bEnd + k] = {glyphrun::Kind::Ascii, '.', txt::Mark::None, '.',
                                      (uint8_t)asciiWidth2('.', &t)};
         if (w.bEllipsis) bn += 3;
-        drawRun(t, items + w.bStart, bn, cx, DLG_Y + 29, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+        drawRun(t, items + w.bStart, bn, cx, DLG_Y + 29, theme::pal().text, theme::pal().dlgShadow, MC_DATUM);
     }
 }
 
@@ -202,8 +202,8 @@ void drawOffline(TFT_eSPI& t, const char* msg) {
     topStrip(t);
     // Battle platform + the bundled Pokemon (no network needed), 2x nearest-neighbour.
     const int cx = 160, feetY = 136;
-    t.fillEllipse(cx, feetY, 60, 12, theme::HORIZON);
-    t.drawEllipse(cx, feetY, 60, 12, theme::BOX_SHADOW);
+    t.fillEllipse(cx, feetY, 60, 12, theme::pal().horizon);
+    t.drawEllipse(cx, feetY, 60, 12, theme::pal().boxShadow);
     int w = status_sprite::width(), h = status_sprite::height();
     int s = (h * 2 <= 110 && w * 2 <= 200) ? 2 : 1;
     int x0 = cx - w * s / 2, y0 = feetY - 4 - h * s;
@@ -213,7 +213,7 @@ void drawOffline(TFT_eSPI& t, const char* msg) {
             if (status_sprite::pixel(x, y, &c)) t.fillRect(x0 + x * s, y0 + y * s, s, s, c);
         }
     dialogueBox(t, 20, 160, 280, 48);
-    shadowText(t, msg, 160, 184, 4, theme::TEXT, theme::DLG_SHADOW, MC_DATUM);
+    shadowText(t, msg, 160, 184, 4, theme::pal().text, theme::pal().dlgShadow, MC_DATUM);
 }
 
 // Gen-3 summary-style badge: rounded box in the colour, darker border, white font-1 label.
@@ -227,7 +227,7 @@ static void drawBadge(TFT_eSPI& t, int x, int y, int w, int h, const char* label
 // Info box, first row: [GENRE] Artist. Without a badge the name keeps the full width.
 void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
     const int TW = INFO_W - 26, x0 = INFO_X + 8, y = INFO_Y + 8;
-    t.fillRect(x0, y - 1, TW, 19, theme::BOX_FILL);
+    t.fillRect(x0, y - 1, TW, 19, theme::pal().boxFill);
     int x = x0, maxW = TW;
     if (genre != genre::NONE && genre < genrebadge::count()) {
         const genrebadge::Badge& b = genrebadge::at(genre);
@@ -235,7 +235,7 @@ void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
         x += genrebadge::W + 6;
         maxW -= genrebadge::W + 6;
     }
-    drawText(t, st.artist[0] ? st.artist : "Artist", x, y, theme::TEXT, theme::TEXT_SHADOW,
+    drawText(t, st.artist[0] ? st.artist : "Artist", x, y, theme::pal().text, theme::pal().textShadow,
              TL_DATUM, maxW);
 }
 
@@ -245,17 +245,17 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
 
     // album art battle box (main pushes the cover into ART_X/Y/W/H)
     battleBox(t, 8, 24, 98, 98, Tab::None);
-    t.fillRect(ART_X, ART_Y, ART_W, ART_H, theme::SKY);
+    t.fillRect(ART_X, ART_Y, ART_W, ART_H, theme::pal().sky);
 
     // info box (opponent-style, slanted right end)
     battleBox(t, INFO_X, INFO_Y, INFO_W, INFO_H, Tab::Right);
     const int TW = INFO_W - 26;
     drawArtistRow(t, st, genre);
     drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 32,
-             theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
+             theme::pal().text, theme::pal().textShadow, TL_DATUM, TW, true);
     char from[96];
     snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
-    drawText(t, from, INFO_X + 8, INFO_Y + 58, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
+    drawText(t, from, INFO_X + 8, INFO_Y + 58, theme::pal().text, theme::pal().textShadow, TL_DATUM, TW);
 
     // status box (player-style, slanted left end): name + No., HP time, walker, bars
     battleBox(t, STAT_X, STAT_Y, STAT_W, STAT_H, Tab::Left);
@@ -268,14 +268,14 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
         drawBadge(t, x, 131, typebadge::W, typebadge::H, lbl, theme::typeColor(st.pokeType));
         x += typebadge::W + 6;
     }
-    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", x, 129, theme::TEXT,
-                       theme::TEXT_SHADOW, TL_DATUM, 96, true);
+    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", x, 129, theme::pal().text,
+                       theme::pal().textShadow, TL_DATUM, 96, true);
     x += nmW + 6;
     if (st.pokedexNum > 0) {
         char no[16];   // fits any int (the dex stops at 1025)
         snprintf(no, sizeof(no), "No.%04d", st.pokedexNum);
         if (x + (int)strlen(no) * typebadge::CHAR_W <= 204)
-            shadowText(t, no, x, 134, 1, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM);
+            shadowText(t, no, x, 134, 1, theme::pal().text, theme::pal().textShadow, TL_DATUM);
     }
     drawProgressRegion(t, st);
 
