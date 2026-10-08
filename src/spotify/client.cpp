@@ -67,15 +67,14 @@ void begin() {
 // getCurrentlyPlaying only returns the context URI; the Web API needs a separate
 // authorized call for the playlist name. We keep our own access token (refreshed
 // from the refresh token) for these lookups and cache the last resolved name.
-// "Bearer xxx". A long-lived heap String: WHERE it lands matters. Building the refresh token
-// through a helper (one more temporary String) moved it into the middle of the free heap and
-// cut the largest block from 34.8 to ~17-21 KB, below TLS_NEED (2026-10-08 cleanup, measured
-// on the board). Keep the token code below as is, or move this to a fixed buffer.
-static String s_accessToken;
+// "Bearer xxx" (~250 chars today). A fixed buffer, not a heap String: the String's block
+// (~270 B, kept for the whole session) landed between two ~17.7 KB free blocks and capped the
+// largest free block at ~17-22 KB instead of ~35 KB, below TLS_NEED (heap dump, 2026-10-08).
+static char s_accessToken[512] = "";
 static uint32_t s_tokenExpiry = 0;
 
 static bool ensureAccessToken() {
-    if (!s_accessToken.isEmpty() && (int32_t)(s_tokenExpiry - millis()) > 0) return true;
+    if (s_accessToken[0] && (int32_t)(s_tokenExpiry - millis()) > 0) return true;
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;
     if (rt.isEmpty()) return false;
@@ -94,7 +93,10 @@ static bool ensureAccessToken() {
     DeserializationError e = deserializeJson(doc, https.getString());
     https.end();
     if (e || !doc["access_token"].is<const char*>()) return false;
-    s_accessToken = String("Bearer ") + (const char*)doc["access_token"];
+    if (!txt::concat(s_accessToken, sizeof(s_accessToken), "Bearer ", doc["access_token"].as<const char*>())) {
+        Serial.println("[spotify] access token too long for its buffer");
+        return false;
+    }
     s_tokenExpiry = millis() + 50UL * 60 * 1000;   // tokens last ~1h
     return true;
 }
@@ -126,8 +128,7 @@ static bool resolveContext(const char* uri, char* out, size_t n) {
     https.addHeader("Authorization", s_accessToken);
     int rc = https.GET();
     // 401: the cached access token was revoked or expired early. Expire it now so the next
-    // lookup refreshes it, instead of failing until the 50-minute expiry. (The timestamp, not
-    // the String: s_accessToken's heap block stays where it is.)
+    // lookup refreshes it, instead of failing until the 50-minute expiry.
     if (rc == 401) s_tokenExpiry = millis();
     bool ok = rc == 403 || rc == 404;
     if (rc == 200) {

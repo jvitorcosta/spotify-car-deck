@@ -124,10 +124,20 @@ void test_equals_ignore_case() {
     TEST_ASSERT_FALSE(txt::equalsIgnoreCase("tv", nullptr));
     TEST_ASSERT_TRUE(txt::equalsIgnoreCase("", ""));
 }
+void test_concat_all_or_nothing() {
+    char b[12] = "old";
+    TEST_ASSERT_TRUE(txt::concat(b, sizeof(b), "Bearer ", "abcd"));
+    TEST_ASSERT_EQUAL_STRING("Bearer abcd", b);              // 11 chars + NUL: exactly fits
+    TEST_ASSERT_FALSE(txt::concat(b, sizeof(b), "Bearer ", "abcde"));
+    TEST_ASSERT_EQUAL_STRING("", b);                         // too long: empty, never truncated
+    TEST_ASSERT_FALSE(txt::concat(b, sizeof(b), "Bearer ", nullptr));
+    TEST_ASSERT_EQUAL_STRING("", b);
+}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_copy_truncates_and_terminates);
     RUN_TEST(test_equals_ignore_case);
+    RUN_TEST(test_concat_all_or_nothing);
     RUN_TEST(test_url_encode_reserved_and_utf8);
     RUN_TEST(test_url_encode_truncates_whole_escapes);
     RUN_TEST(test_copy_id_short_is_copied_verbatim);

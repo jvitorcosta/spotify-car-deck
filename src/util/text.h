@@ -23,6 +23,9 @@ void copyId(const char* src, char* dst, size_t n);
 size_t urlEncode(const char* s, char* out, size_t n);
 // Copies src into dst (n bytes incl. NUL), truncating; always NUL-terminated. nullptr -> "".
 void copy(char* dst, const char* src, size_t n);
+// dst = a + b, all or nothing: if it does not fit in n bytes (or either is nullptr) dst becomes
+// "" and the result is false. For values that must never be truncated (an auth header).
+bool concat(char* dst, size_t n, const char* a, const char* b);
 // ASCII case-insensitive equality; false if either side is nullptr.
 bool equalsIgnoreCase(const char* a, const char* b);
 }

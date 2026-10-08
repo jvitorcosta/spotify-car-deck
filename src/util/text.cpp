@@ -27,6 +27,17 @@ void copy(char* dst, const char* src, size_t n) {
     dst[i] = '\0';
 }
 
+bool concat(char* dst, size_t n, const char* a, const char* b) {
+    if (n == 0) return false;
+    dst[0] = '\0';
+    if (!a || !b) return false;
+    size_t la = strlen(a), lb = strlen(b);
+    if (la + lb + 1 > n) return false;
+    memcpy(dst, a, la);
+    memcpy(dst + la, b, lb + 1);
+    return true;
+}
+
 bool equalsIgnoreCase(const char* a, const char* b) {
     if (!a || !b) return false;
     for (; *a && *b; ++a, ++b) {

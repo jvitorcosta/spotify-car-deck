@@ -4,24 +4,20 @@ Open items, not scheduled. Newest decisions first within each section.
 
 ## Verification (on device)
 
-- **iPhone hotspot.** Saved as the second network in `src/config.h`; never connected yet.
-  Needs "Maximize Compatibility" on (the ESP32 is 2.4 GHz only). Also exercises the
-  half-dead link (WiFi up, no mobile data) path, which has never run on the board.
+- **Half-dead link** (WiFi up, no mobile data): the iPhone hotspot works (2026-10-08), but this
+  path has never run on the board. Hotspot needs "Maximize Compatibility" on (2.4 GHz only).
 
 ## Investigate
 
-- **`s_accessToken` heap placement** (`src/spotify/client.cpp`). A long-lived heap String
-  created right after a TLS session: a small change in temporary allocations before it (a
-  `refreshToken()` helper, tried in the 2026-10-08 cleanup) moved it into the middle of the free
-  heap and cut the largest block from 34.8 KB to 17-21 KB, below `TLS_NEED`, deferring walker
-  downloads. The helper was reverted. Robust fix: a fixed `char[]` (~350 B static) instead of
-  the String; it changes the RAM layout, so measure on the board.
-
-- **Dropped WiFi receive buffers.** ~4.7/s during a normal session (2 811 in 10 min), mostly
-  around track changes while art, lyrics and the walker download. TCP resends them and every
-  poll still succeeds, but each drop adds latency. Byte RAM shows 67 KB free / 34.8 KB largest
-  at log time, so the shortage is momentary (several TLS sessions + RX bursts). Ideas: fewer
-  concurrent TLS buffers, smaller TCP window, spacing the per-song downloads.
+- **Dropped WiFi receive buffers.** The WiFi driver can't get a ~1.5 KB buffer (caps 0x1800)
+  and drops the frame; TCP resends it and every request still succeeds, but each drop adds
+  latency. Rate varies a lot by network and song: 1 800-4 900 in 5 min on the iPhone hotspot
+  (2026-10-08). Findings: it happens during every TLS request, plain polls included, not only
+  around track changes; only one TLS session is ever open (SpotifyArduino closes its client
+  after each call, the steps run one at a time); even 218 B allocations fail, so the heap is
+  momentarily empty while a TLS session (~40 KB) is open on ~65 KB free. The levers left are
+  build-time settings fixed in the precompiled Arduino core (mbedTLS 16 KB input buffer, lwIP
+  TCP window, WiFi RX buffer count): they need the arduino-as-ESP-IDF-component build.
 
 ## Lyrics polish (deferred minors, final review 2026-10-08)
 
@@ -60,8 +56,6 @@ call is a no-op and the walker is downloaded each time (~25 KB/song, usually pre
 
 - If WiFi only comes up after boot, the Spotify setup portal is skipped. Only matters for a
   first-ever setup with no saved login; a reboot with WiFi up fixes it.
-- `s_accessToken` is an Arduino `String`, reassigned once an hour: the churn is negligible, but
-  its heap placement is not (see "Investigate").
 - Backlight stays at full brightness (decided 2026-10-07): no auto-dim from the CYD light
   sensor (GPIO 34), even though it was suggested for night glare.
 
