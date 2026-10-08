@@ -16,7 +16,7 @@ String loadRefreshToken() {
     prefs.end();
     return t;
 }
-void saveRefreshToken(const String& token) {
+static void saveRefreshToken(const String& token) {
     prefs.begin("spotify", false);
     prefs.putString("rtoken", token);
     prefs.end();

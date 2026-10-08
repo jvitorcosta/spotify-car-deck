@@ -1,12 +1,7 @@
 #pragma once
 #include <TFT_eSPI.h>
 #include "app_state.h"
-#include "widgets.h"
 namespace ui {
-// Control button layout, kept for when touch controls return (Task 13).
-struct NowButtons { Button prev, play, next, vol, lyrics; };
-NowButtons nowButtons();
-
 // Album art target rect inside the art battle box (main pushes the cover here).
 constexpr int ART_X = 11, ART_Y = 27, ART_W = 92, ART_H = 92;
 

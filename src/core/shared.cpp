@@ -24,8 +24,6 @@ void unlock() { xSemaphoreGive(g_mtx); }
 void publish(const AppState& st) { Guard g; g_state = st; }
 void snapshot(AppState& out) { Guard g; out = g_state; }
 
-
-
 void postWalker(uint32_t gen) { Guard g; if (gen == g_state.trackGen) g_walkerGen = gen; }
 
 void artInvalidate() { Guard g; g_artGen = 0; g_artNew = false; }

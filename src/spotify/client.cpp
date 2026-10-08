@@ -12,7 +12,6 @@ namespace spclient {
 static WiFiClientSecure client;
 static SpotifyArduino* sp = nullptr;
 static AppState* target = nullptr;
-static bool trackChanged = false;
 
 static void copyStr(char* dst, const char* src, size_t n) {
     if (!src) { dst[0] = '\0'; return; }
@@ -23,7 +22,6 @@ static void onPlaying(CurrentlyPlaying cp) {
     AppState& st = *target;
     // Store ORIGINAL (UTF-8) names so LRCLIB lyric matching works for accented
     // titles; accents are folded to ASCII at display time instead.
-    if (strncmp(st.trackName, cp.trackName, sizeof(st.trackName)) != 0) trackChanged = true;
     copyStr(st.trackName, cp.trackName, sizeof(st.trackName));
     txt::copyId(cp.trackUri, st.trackUri, sizeof(st.trackUri));   // long local-file URIs stay distinct
     copyStr(st.artist, cp.numArtists > 0 ? cp.artists[0].artistName : nullptr, sizeof(st.artist));
@@ -126,9 +124,9 @@ static bool resolveContext(const char* uri, char* out, size_t n) {
     return ok;
 }
 
-bool poll(AppState& st) {
-    if (!sp) return false;
-    target = &st; trackChanged = false;
+void poll(AppState& st) {
+    if (!sp) return;
+    target = &st;
     int code = sp->getCurrentlyPlaying(onPlaying, SPOTIFY_MARKET);
     if (code == 200) {
         // st.context holds the raw context URI (set in onPlaying). Resolve it to
@@ -145,14 +143,12 @@ bool poll(AppState& st) {
         }
         strncpy(st.context, cachedName, sizeof(st.context) - 1);
         st.context[sizeof(st.context) - 1] = 0;
-        return trackChanged;
     } else if (code == 204) {
         st.status = PlaybackStatus::Stopped;
     } else {
         Serial.printf("[spotify] poll HTTP %d\n", code);
         st.status = PlaybackStatus::Offline;
     }
-    return false;
 }
 
 static void onPlayer(PlayerDetails pd) {
@@ -171,17 +167,5 @@ void pollPlayerDetails(AppState& st) {
     if (!sp) return;
     target = &st;
     sp->getPlayerDetails(onPlayer, SPOTIFY_MARKET);
-}
-
-void togglePlay(bool currentlyPlaying) {
-    if (!sp) return;
-    if (currentlyPlaying) sp->pause(); else sp->play();
-}
-void next() { if (sp) sp->nextTrack(); }
-void prev() { if (sp) sp->previousTrack(); }
-void setVolume(int pct) {
-    if (!sp) return;
-    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
-    sp->setVolume(pct);
 }
 }

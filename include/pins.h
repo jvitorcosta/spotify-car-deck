@@ -18,6 +18,3 @@ static const int SD_MOSI = 23;
 // Backlight
 static const int PIN_BL = 21;
 
-// Screen geometry (landscape)
-static const int SCREEN_W = 320;
-static const int SCREEN_H = 240;

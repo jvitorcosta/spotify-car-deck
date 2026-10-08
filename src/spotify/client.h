@@ -3,10 +3,6 @@
 #include "app_state.h"
 namespace spclient {
 void begin();
-bool poll(AppState& st);              // returns true when the track changed
+void poll(AppState& st);               // now playing: track, progress, status, context name
 void pollPlayerDetails(AppState& st); // fills deviceName/volume/shuffle/repeat
-void togglePlay(bool currentlyPlaying);
-void next();
-void prev();
-void setVolume(int pct);   // 0..100
 }

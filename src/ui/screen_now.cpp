@@ -29,17 +29,6 @@ static const int EXP_Y = 188;
 static const int DLG_X = 4, DLG_Y = 198, DLG_W = 312, DLG_H = 41;
 static const int CD_CY = 10;
 
-NowButtons nowButtons() {
-    NowButtons b;
-    int y = 210, h = 26;
-    b.prev   = {8,   y, 46, h, "<<"};
-    b.play   = {58,  y, 56, h, ">II"};
-    b.next   = {118, y, 46, h, ">>"};
-    b.vol    = {168, y, 44, h, "VOL"};
-    b.lyrics = {216, y, 96, h, "LYRICS"};
-    return b;
-}
-
 static int g_cdX = 100;   // set by drawTopStrip from the title width
 
 void drawCdFrame(TFT_eSPI& t, int frame) { drawCd(t, g_cdX, CD_CY, frame, theme::TOP_DARK); }
@@ -51,7 +40,7 @@ void drawTopStrip(TFT_eSPI& t, const AppState& st) {
     g_cdX = 6 + t.textWidth(title, 2) + 10;
     drawCdFrame(t, 0);
 
-    int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, 2, theme::BOX_FILL,
+    int nameW = drawText(t, st.deviceName[0] ? st.deviceName : "device", 314, 2, theme::BOX_FILL,
                          theme::BOX_BORDER, TR_DATUM, 110);
     int devX = 314 - nameW - 4 - icons::SIZE;
     drawIcon(t, icons::forDevice(st.deviceType), devX, 4, theme::BOX_FILL, theme::TOP_DARK);
@@ -245,7 +234,7 @@ void drawArtistRow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
         x += genrebadge::W + 6;
         maxW -= genrebadge::W + 6;
     }
-    drawText(t, st.artist[0] ? st.artist : "Artist", x, y, 2, theme::TEXT, theme::TEXT_SHADOW,
+    drawText(t, st.artist[0] ? st.artist : "Artist", x, y, theme::TEXT, theme::TEXT_SHADOW,
              TL_DATUM, maxW);
 }
 
@@ -260,12 +249,12 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
     // info box (opponent-style, slanted right end)
     battleBox(t, INFO_X, INFO_Y, INFO_W, INFO_H, Tab::Right);
     const int TW = INFO_W - 26;
-    drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 8, 2,
+    drawText(t, st.trackName[0] ? st.trackName : "Track title", INFO_X + 8, INFO_Y + 8,
              theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW, true);
     drawArtistRow(t, st, genre);
     char from[96];
     snprintf(from, sizeof(from), "From: %s", st.context[0] ? st.context : "Playlist");
-    drawText(t, from, INFO_X + 8, INFO_Y + 58, 2, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
+    drawText(t, from, INFO_X + 8, INFO_Y + 58, theme::TEXT, theme::TEXT_SHADOW, TL_DATUM, TW);
 
     // status box (player-style, slanted left end): name + No., HP time, walker, bars
     battleBox(t, STAT_X, STAT_Y, STAT_W, STAT_H, Tab::Left);
@@ -278,7 +267,7 @@ void drawNow(TFT_eSPI& t, const AppState& st, uint8_t genre) {
         drawBadge(t, x, 131, typebadge::W, typebadge::H, lbl, theme::typeColor(st.pokeType));
         x += typebadge::W + 6;
     }
-    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", x, 129, 2, theme::TEXT,
+    int nmW = drawText(t, st.pokeName[0] ? st.pokeName : "Pokemon", x, 129, theme::TEXT,
                        theme::TEXT_SHADOW, TL_DATUM, 96, true);
     x += nmW + 6;
     if (st.pokedexNum > 0) {

@@ -3,9 +3,7 @@
 
 namespace theme {
 // RGB565 GBA Ruby/Sapphire palette
-constexpr uint16_t GBA_CREAM = 0xF73A;
 constexpr uint16_t GBA_NAVY  = 0x218A;
-constexpr uint16_t GBA_GOLD  = 0xD605;
 constexpr uint16_t POKE_RED  = 0xE006;
 // 8-bit-per-channel colour -> RGB565 (what TFT_eSPI fill/draw calls take).
 constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {

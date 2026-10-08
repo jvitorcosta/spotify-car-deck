@@ -17,8 +17,6 @@ bool begin() {
     return ready;
 }
 
-bool hasPath(const String& path) { return ready && SD.exists(path); }
-
 bool savePath(const String& path, const uint8_t* data, size_t n) {
     if (!ready) return false;
     fs::File f = SD.open(path, FILE_WRITE);
@@ -47,8 +45,6 @@ bool readInto(const String& path, uint8_t* buf, size_t cap, size_t* outLen) {
 void removePath(const String& path) { if (ready) SD.remove(path); }
 
 String spritePath(int dex) { return "/sprites/" + String(dex) + ".png"; }
-bool has(int dex) { return hasPath(spritePath(dex)); }
 bool save(int dex, const uint8_t* data, size_t n) { return savePath(spritePath(dex), data, n); }
-fs::File open(int dex) { return ready ? SD.open(spritePath(dex), FILE_READ) : fs::File(); }
 
 }

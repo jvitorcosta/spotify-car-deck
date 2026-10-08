@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
 #include <TFT_eSPI.h>
 #include "pins.h"
 #include "net/wifi.h"
@@ -9,7 +8,6 @@
 #include "core/shared.h"
 #include "core/nettask.h"
 #include "core/mem.h"
-#include "ui/theme.h"
 #include "ui/screen_now.h"
 #include "ui/cjkdata.h"
 #include "ui/pokeball.h"

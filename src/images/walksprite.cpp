@@ -188,8 +188,7 @@ bool loadPmd(int dex) {
         return false;
     }
     Res r = decodeRegion(g_scratch, n, DIR_RIGHT * a.frameH, a.frameH, a.frameW, a.frames, true);
-    if (r != Res::Ok) {
-        g_info[s_slot].ready = false;
+    if (r != Res::Ok) {                                    // slot stays not-ready (cleared on entry)
         if (r == Res::Corrupt) {   // corrupt: drop the cache so the next play re-downloads
             cache::removePath(xmlPath);
             cache::removePath(pngPath);
@@ -221,7 +220,6 @@ bool loadFallback(const char* spriteUrl, int dex) {
     }
     Res r = decodeRegion(g_scratch, n, 0, 0, 0, 1, false);
     if (r != Res::Ok) {
-        g_info[s_slot].ready = false;
         if (r == Res::Corrupt && fromCache) cache::removePath(cache::spritePath(dex));
         Serial.printf("[walk] no walker (sprite %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");
         return false;

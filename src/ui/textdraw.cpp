@@ -67,9 +67,8 @@ int drawRun(TFT_eSPI& t, const glyphrun::Item* it, size_t n, int x, int y, uint1
     return w;
 }
 
-int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint8_t font, uint16_t fg,
+int drawText(TFT_eSPI& t, const char* utf8, int x, int y, uint16_t fg,
              uint16_t shadow, uint8_t datum, int maxW, bool upper) {
-    (void)font;   // dynamic text is font 2
     glyphrun::Item items[96];
     size_t n = glyphrun::decode(utf8 ? utf8 : "", items, 96, asciiWidth2, wideWidth, &t, upper);
     n = glyphrun::fit(items, n, 96, maxW, asciiWidth2, &t);
