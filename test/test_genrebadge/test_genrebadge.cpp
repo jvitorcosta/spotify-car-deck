@@ -38,6 +38,27 @@ void test_subgenres_take_parent_badge() {
     TEST_ASSERT_EQUAL_STRING("LATIN", L(100026));  // Cha-cha-cha
     TEST_ASSERT_EQUAL_STRING("BRASIL", L(1224));   // Frevo
 }
+// Africana and its subgenres get their own badge (Wizkid is Afrobeats 100051), not WORLD.
+void test_african_genres_are_afro() {
+    TEST_ASSERT_EQUAL_STRING("AFRO", L(1203));     // Africana
+    TEST_ASSERT_EQUAL_STRING("AFRO", L(100051));   // Afrobeats
+    TEST_ASSERT_EQUAL_STRING("AFRO", L(42));       // Amapiano
+    TEST_ASSERT_EQUAL_STRING("AFRO", L(1178));     // Afro-pop
+    TEST_ASSERT_EQUAL_STRING("WORLD", L(19));      // other regions stay WORLD
+    TEST_ASSERT_EQUAL_STRING("WORLD", L(1263));
+}
+// Chinese music gets one badge wherever Apple files it (own group, or under Pop/Rap/Rock/Alt).
+void test_chinese_genres_are_chinese() {
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1232));  // Chinês
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1235));  // Chinese opera (subgenre)
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1250));  // C-Pop (under Pop)
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1251));  // Cantopop (under Pop)
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1241));  // Chinese hip-hop (under Rap)
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1248));  // Chinese rock (under Rock)
+    TEST_ASSERT_EQUAL_STRING("CHINESE", L(1230));  // Chinese alt (under Alternativo)
+    TEST_ASSERT_EQUAL_STRING("K-POP", L(51));      // neighbours unchanged
+    TEST_ASSERT_EQUAL_STRING("WORLD", L(1243));    // Coreano (traditional Korean)
+}
 void test_overrides_beat_parent() {
     TEST_ASSERT_EQUAL_STRING("K-POP", L(51));
     TEST_ASSERT_EQUAL_STRING("FUNK", L(1139));
@@ -64,7 +85,7 @@ void test_unknown_is_question_marks() {
     TEST_ASSERT_EQUAL_HEX16(theme::rgb(0x88, 0x90, 0xA0), genrebadge::at(genrebadge::count() - 1).color);
 }
 void test_badges_fit_and_colours_are_distinct() {
-    TEST_ASSERT_EQUAL_INT(29, genrebadge::count());
+    TEST_ASSERT_EQUAL_INT(31, genrebadge::count());
     for (int i = 0; i < genrebadge::count(); ++i) {
         const genrebadge::Badge& b = genrebadge::at(i);
         TEST_ASSERT_TRUE_MESSAGE(strlen(b.label) <= 9, b.label);
@@ -81,6 +102,8 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_top_level_genres);
     RUN_TEST(test_subgenres_take_parent_badge);
+    RUN_TEST(test_african_genres_are_afro);
+    RUN_TEST(test_chinese_genres_are_chinese);
     RUN_TEST(test_overrides_beat_parent);
     RUN_TEST(test_unknown_is_question_marks);
     RUN_TEST(test_badges_fit_and_colours_are_distinct);

@@ -21,15 +21,17 @@ BADGES = [
     ("FUNK BR", 0xE0B000), ("SERTANEJO", 0xA87030), ("MPB", 0x2E8C80), ("SAMBA", 0xE89818),
     ("PAGODE", 0x58A838), ("FORRO", 0xC85828), ("AXE", 0xF07800), ("LATIN", 0xE05040),
     ("REGGAE", 0x3C8C28), ("JAZZ", 0x3858A0), ("GOSPEL", 0xC0A048), ("CLASSIC", 0x8C6A48),
-    ("OST", 0x687898), ("COUNTRY", 0xA08048), ("FOLK", 0x788C48), ("WORLD", 0x4890B0),
-    ("???", 0x8890A0),
+    ("OST", 0x687898), ("COUNTRY", 0xA08048), ("FOLK", 0x788C48), ("AFRO", 0x9C5CD8),
+    ("CHINESE", 0xD0103A), ("WORLD", 0x4890B0), ("???", 0x8890A0),
 ]
 TOP = {
     14: "POP", 50000066: "POP", 50000064: "POP", 18: "RAP", 15: "R&B", 21: "ROCK", 20: "ALT",
     7: "ELECTRO", 17: "DANCE", 1122: "BRASIL", 12: "LATIN", 100024: "LATIN", 24: "REGGAE",
     11: "JAZZ", 2: "JAZZ", 22: "GOSPEL", 5: "CLASSIC", 1290: "CLASSIC", 16: "OST",
     6: "COUNTRY", 1289: "FOLK", 10: "FOLK", 50000068: "FOLK",
-    19: "WORLD", 1203: "WORLD", 1197: "WORLD", 1262: "WORLD", 1232: "WORLD", 1243: "WORLD",
+    1203: "AFRO",   # Africana: Afrobeats, Afro-pop, Amapiano, Afro House ...
+    1232: "CHINESE",   # Chinês group (traditional, opera, orchestra ...)
+    19: "WORLD", 1197: "WORLD", 1262: "WORLD", 1243: "WORLD",
     1300: "WORLD", 100084: "WORLD", 1299: "WORLD", 50000121: "WORLD",
 }
 OVERRIDES = {
@@ -37,6 +39,8 @@ OVERRIDES = {
     1139: "FUNK", 1153: "METAL", 1149: "METAL", 1151: "METAL", 1152: "METAL",
     1229: "FUNK BR", 1228: "SERTANEJO", 1225: "MPB", 1221: "MPB", 1227: "SAMBA", 1222: "SAMBA",
     1226: "PAGODE", 1223: "FORRO", 1220: "AXE",
+    # Chinese music filed under other genres: C-Pop, Cantopop, hip-hop, rock, alternative.
+    1250: "CHINESE", 1251: "CHINESE", 1241: "CHINESE", 1248: "CHINESE", 1230: "CHINESE",
 }
 
 index = {label: i for i, (label, _) in enumerate(BADGES)}
