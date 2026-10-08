@@ -7,6 +7,9 @@
 #include "../util/walkanim.h"
 #include "../util/dexset.h"
 
+// g_dur holds one entry per parsed frame: the two caps must stay equal.
+static_assert(walk::MAX_FRAMES == animdata::MAX_FRAMES, "walk and animdata frame caps differ");
+
 namespace walk {
 
 // Slot layout: all frames' pixels first (keeps uint16 access aligned), then masks.

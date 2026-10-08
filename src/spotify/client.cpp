@@ -1,6 +1,7 @@
 #include "client.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include "../net/http_config.h"
 #include <ArduinoJson.h>
 #include <SpotifyArduino.h>
 #include "../config.h"
@@ -15,7 +16,7 @@ static AppState* target = nullptr;
 
 static void copyStr(char* dst, const char* src, size_t n) {
     if (!src) { dst[0] = '\0'; return; }
-    strncpy(dst, src, n - 1); dst[n - 1] = '\0';
+    txt::copy(dst, src, n);
 }
 
 static void onPlaying(CurrentlyPlaying cp) {
@@ -38,8 +39,7 @@ static void onPlaying(CurrentlyPlaying cp) {
 }
 
 void begin() {
-    client.setInsecure();
-    client.setHandshakeTimeout(8);   // default 120 s froze polls on a half-dead hotspot
+    netcfg::secure(client);
     client.setTimeout(8);            // seconds: TCP connect/read (default 30 s)
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;   // PC-obtained token from config.h
@@ -57,7 +57,11 @@ void begin() {
 // getCurrentlyPlaying only returns the context URI; the Web API needs a separate
 // authorized call for the playlist name. We keep our own access token (refreshed
 // from the refresh token) for these lookups and cache the last resolved name.
-static String g_accessToken;        // "Bearer xxx"
+// "Bearer xxx". A long-lived heap String: WHERE it lands matters. Building the refresh token
+// through a helper (one more temporary String) moved it into the middle of the free heap and
+// cut the largest block from 34.8 to ~17-21 KB, below TLS_NEED (2026-10-08 cleanup, measured
+// on the board). Keep the token code below as is, or move this to a fixed buffer.
+static String g_accessToken;
 static uint32_t g_tokenExpiry = 0;
 
 static bool ensureAccessToken() {
@@ -65,10 +69,10 @@ static bool ensureAccessToken() {
     String rt = spauth::loadRefreshToken();
     if (rt.isEmpty()) rt = SPOTIFY_REFRESH_TOKEN;
     if (rt.isEmpty()) return false;
-    WiFiClientSecure c; c.setInsecure();
-    c.setHandshakeTimeout(8);   // seconds; defaults (30 s connect, 120 s handshake) stalled polls
+    WiFiClientSecure c;
+    netcfg::secure(c);
     HTTPClient https;
-    https.setTimeout(8000);
+    https.setTimeout(netcfg::HTTP_TIMEOUT_MS);
     if (!https.begin(c, "https://accounts.spotify.com/api/token")) return false;
     https.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "grant_type=refresh_token&refresh_token=" + rt +
@@ -90,23 +94,23 @@ static bool ensureAccessToken() {
 // ("playlist") as a placeholder. 403/404 (private or deleted playlist) are final.
 static bool resolveContext(const char* uri, char* out, size_t n) {
     out[0] = '\0';
-    if (!uri || !uri[0]) { strncpy(out, "-", n - 1); out[n - 1] = 0; return true; }
+    if (!uri || !uri[0]) { txt::copy(out, "-", n); return true; }
     String u = uri;
     int p1 = u.indexOf(':'), p2 = u.indexOf(':', p1 + 1);
-    if (p1 < 0 || p2 < 0) { strncpy(out, "-", n - 1); out[n - 1] = 0; return true; }
+    if (p1 < 0 || p2 < 0) { txt::copy(out, "-", n); return true; }
     String type = u.substring(p1 + 1, p2), id = u.substring(p2 + 1);
 
     const char* endpoint = nullptr;
     if (type == "playlist") endpoint = "playlists";
     else if (type == "album") endpoint = "albums";
     else if (type == "artist") endpoint = "artists";
-    strncpy(out, type.c_str(), n - 1); out[n - 1] = 0;   // placeholder until resolved
+    txt::copy(out, type.c_str(), n);   // placeholder until resolved
     if (!endpoint) return true;                            // e.g. "collection": nothing to look up
     if (!ensureAccessToken()) return false;
-    WiFiClientSecure c; c.setInsecure();
-    c.setHandshakeTimeout(8);   // seconds; defaults (30 s connect, 120 s handshake) stalled polls
+    WiFiClientSecure c;
+    netcfg::secure(c);
     HTTPClient https;
-    https.setTimeout(8000);
+    https.setTimeout(netcfg::HTTP_TIMEOUT_MS);
     String url = "https://api.spotify.com/v1/" + String(endpoint) + "/" + id + "?fields=name";
     if (!https.begin(c, url)) return false;
     https.addHeader("Authorization", g_accessToken);
@@ -115,8 +119,7 @@ static bool resolveContext(const char* uri, char* out, size_t n) {
     if (rc == 200) {
         JsonDocument d;
         if (!deserializeJson(d, https.getString()) && d["name"].is<const char*>()) {
-            strncpy(out, d["name"], n - 1);          // raw; folded at display time
-            out[n - 1] = 0;
+            txt::copy(out, d["name"], n);          // raw; folded at display time
             ok = true;
         }
     }
@@ -141,8 +144,7 @@ void poll(AppState& st) {
             cache.store(st.context, ok, millis());
             Serial.printf("[spotify] context: %s%s\n", cachedName, ok ? "" : " (lookup failed, will retry)");
         }
-        strncpy(st.context, cachedName, sizeof(st.context) - 1);
-        st.context[sizeof(st.context) - 1] = 0;
+        txt::copy(st.context, cachedName, sizeof(st.context));
     } else if (code == 204) {
         st.status = PlaybackStatus::Stopped;
     } else {

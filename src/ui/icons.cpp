@@ -4,7 +4,7 @@
 
 namespace ui {
 
-static inline uint16_t be(uint16_t c) { return (uint16_t)((c >> 8) | (c << 8)); }
+using theme::be;
 
 void drawIcon(TFT_eSPI& t, icons::Icon i, int x, int y, uint16_t fg, uint16_t bg) {
     uint16_t buf[icons::SIZE * icons::SIZE];

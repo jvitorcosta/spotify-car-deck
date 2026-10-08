@@ -10,6 +10,13 @@ Open items, not scheduled. Newest decisions first within each section.
 
 ## Investigate
 
+- **`g_accessToken` heap placement** (`src/spotify/client.cpp`). A long-lived heap String
+  created right after a TLS session: a small change in temporary allocations before it (a
+  `refreshToken()` helper, tried in the 2026-10-08 cleanup) moved it into the middle of the free
+  heap and cut the largest block from 34.8 KB to 17-21 KB, below `TLS_NEED`, deferring walker
+  downloads. The helper was reverted. Robust fix: a fixed `char[]` (~350 B static) instead of
+  the String; it changes the RAM layout, so measure on the board.
+
 - **Dropped WiFi receive buffers.** ~4.7/s during a normal session (2 811 in 10 min), mostly
   around track changes while art, lyrics and the walker download. TCP resends them and every
   poll still succeeds, but each drop adds latency. Byte RAM shows 67 KB free / 34.8 KB largest

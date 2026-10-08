@@ -1,6 +1,7 @@
 #include "fetch.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include "../net/http_config.h"
 
 namespace fetch {
 
@@ -10,11 +11,9 @@ bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int
     if (httpCode) *httpCode = 0;
     if (!url || !url[0] || !buf || cap < 2) return false;
     WiFiClientSecure client;
-    client.setInsecure();
-    client.setHandshakeTimeout(8);   // seconds; default 120 s blocks a half-dead link
+    netcfg::secure(client);
     HTTPClient https;
-    https.useHTTP10(true);           // plain (non-chunked) body so getSize() is the length
-    https.setTimeout(8000);
+    netcfg::streamed(https);   // plain (non-chunked) body, so getSize() is the length
     if (!https.begin(client, url)) return false;
     int code = https.GET();
     if (httpCode) *httpCode = code;
@@ -44,7 +43,7 @@ bool httpsGetInto(const char* url, uint8_t* buf, size_t cap, size_t* outLen, int
             got += s->readBytes(buf + got, want);
             last = millis();
         } else {
-            if (millis() - last > 8000) break;   // stalled
+            if (millis() - last > netcfg::STALL_MS) break;   // stalled
             delay(1);
         }
     }

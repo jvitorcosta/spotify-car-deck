@@ -1,4 +1,5 @@
 #include "ctxcache.h"
+#include "text.h"
 #include <cstring>
 
 namespace ctxcache {
@@ -11,8 +12,7 @@ bool Cache::needsLookup(const char* uri, uint32_t nowMs) const {
 
 void Cache::store(const char* uri, bool ok, uint32_t nowMs) {
     if (!uri) uri = "";
-    strncpy(uri_, uri, sizeof(uri_) - 1);
-    uri_[sizeof(uri_) - 1] = '\0';
+    txt::copy(uri_, uri, sizeof(uri_));
     ok_ = ok;
     stored_ = true;
     at_ = nowMs;

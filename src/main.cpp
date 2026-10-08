@@ -45,6 +45,9 @@ static const char* resetReason() {
 // arrives through core/shared (README "Design & performance history").
 TFT_eSPI tft = TFT_eSPI();
 
+// The art box and the decoded bitmap are the same 92x92 area (pushArtIfValid pushes it whole).
+static_assert(ui::ART_W == art::W && ui::ART_H == art::H, "art box and bitmap sizes differ");
+
 static char g_topSig[96] = "";                 // last drawn top-strip state
 
 // Pushes the album-art bitmap if it is valid for the track on screen. Check and push happen

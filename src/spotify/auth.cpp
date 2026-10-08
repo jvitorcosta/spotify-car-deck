@@ -22,8 +22,11 @@ static void saveRefreshToken(const String& token) {
     prefs.end();
 }
 
+// The setup portal's redirect URI (must match the one registered in the Spotify app).
+static String redirectUri() { return "http://" + net::deviceIp() + "/callback"; }
+
 static String authorizeUrl() {
-    String redirect = "http://" + net::deviceIp() + "/callback";
+    String redirect = redirectUri();
     String scope = "user-read-playback-state%20user-modify-playback-state%20user-read-currently-playing";
     return String("https://accounts.spotify.com/authorize?response_type=code&client_id=")
         + SPOTIFY_CLIENT_ID + "&scope=" + scope + "&redirect_uri=" + redirect;
@@ -33,7 +36,7 @@ static String authorizeUrl() {
 static bool exchangeCode(const String& code) {
     WiFiClientSecure client; client.setInsecure();
     HTTPClient https;
-    String redirect = "http://" + net::deviceIp() + "/callback";
+    String redirect = redirectUri();
     https.begin(client, "https://accounts.spotify.com/api/token");
     https.addHeader("Content-Type", "application/x-www-form-urlencoded");
     String body = "grant_type=authorization_code&code=" + code +

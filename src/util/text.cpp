@@ -20,6 +20,23 @@ void copyId(const char* src, char* dst, size_t n) {
     dst[n - 1] = '\0';
 }
 
+void copy(char* dst, const char* src, size_t n) {
+    if (n == 0) return;
+    size_t i = 0;
+    for (; src && src[i] && i + 1 < n; ++i) dst[i] = src[i];
+    dst[i] = '\0';
+}
+
+bool equalsIgnoreCase(const char* a, const char* b) {
+    if (!a || !b) return false;
+    for (; *a && *b; ++a, ++b) {
+        char x = (*a >= 'A' && *a <= 'Z') ? (char)(*a - 'A' + 'a') : *a;
+        char y = (*b >= 'A' && *b <= 'Z') ? (char)(*b - 'A' + 'a') : *b;
+        if (x != y) return false;
+    }
+    return *a == *b;
+}
+
 size_t urlEncode(const char* s, char* out, size_t n) {
     if (n == 0) return 0;
     static const char hex[] = "0123456789ABCDEF";

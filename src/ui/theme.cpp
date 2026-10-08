@@ -1,6 +1,5 @@
 #include "theme.h"
-#include <cstring>
-#include <cctype>
+#include "../util/text.h"
 
 namespace theme {
 struct TypeColor { const char* name; uint16_t color; };
@@ -17,15 +16,14 @@ static const TypeColor TABLE[] = {
     {"dragon",   rgb(0x70, 0x38, 0xF8)}, {"dark",    rgb(0x70, 0x58, 0x48)},
     {"steel",    rgb(0xB8, 0xB8, 0xD0)}, {"fairy",   rgb(0xEE, 0x99, 0xAC)},
 };
-static char lower(char c){ return (char)std::tolower((unsigned char)c); }
+static constexpr int TYPE_N = (int)(sizeof(TABLE) / sizeof(TABLE[0]));
 
-uint16_t typeColor(const char* type){
-    if(!type) return GBA_NAVY;
-    for(const auto& e : TABLE){
-        const char* a=type; const char* b=e.name; bool eq=true;
-        while(*a && *b){ if(lower(*a)!=*b){eq=false;break;} ++a;++b; }
-        if(eq && *a=='\0' && *b=='\0') return e.color;
-    }
+int typeCount() { return TYPE_N; }
+const char* typeName(int i) { return (i >= 0 && i < TYPE_N) ? TABLE[i].name : ""; }
+
+uint16_t typeColor(const char* type) {
+    for (const auto& e : TABLE)
+        if (txt::equalsIgnoreCase(type, e.name)) return e.color;
     return GBA_NAVY;
 }
 }

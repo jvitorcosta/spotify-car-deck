@@ -2,8 +2,10 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFiClient.h>
+#include "../net/http_config.h"
 #include "tjpgd.h"
 #include "../util/artmap.h"
+#include "../ui/theme.h"
 
 namespace art {
 
@@ -56,7 +58,7 @@ static int jdOut(JDEC*, void* block, JRECT* r) {
             int sx = artmap::srcX(s_map, ox);
             if (sx < r->left || sx > r->right) continue;
             uint16_t c = px[(sy - r->top) * bw + (sx - r->left)];
-            g_bmp[oy * W + ox] = (uint16_t)((c >> 8) | (c << 8));   // store big-endian
+            g_bmp[oy * W + ox] = theme::be(c);   // store big-endian
         }
     }
     return 1;
@@ -68,8 +70,7 @@ bool fetch(const char* url) {
     artmap::plainHttpUrl(url, plain, sizeof(plain));
     WiFiClient client;
     HTTPClient http;
-    http.useHTTP10(true);
-    http.setTimeout(8000);
+    netcfg::streamed(http);
     if (!http.begin(client, plain)) return false;
     int code = http.GET();
     if (code != 200) {

@@ -1,4 +1,5 @@
 #include "shared.h"
+#include "../util/text.h"
 #include <string.h>
 #include "../lyrics/lrclib.h"
 #include <freertos/FreeRTOS.h>
@@ -65,8 +66,7 @@ void lyricView(uint32_t gen, uint32_t posMs, LyricView& out) {
     if (l.n > 0) out.firstLineMs = l.lines[0].tMs;
     int idx = lyricbuf::currentIndex(l, posMs);
     if (idx < 0) idx = 0;                   // intro: show the upcoming first line
-    strncpy(out.line, lyricbuf::lineText(l, idx), sizeof(out.line) - 1);
-    out.line[sizeof(out.line) - 1] = '\0';
+    txt::copy(out.line, lyricbuf::lineText(l, idx), sizeof(out.line));
 }
 
 bool takeWalker(uint32_t gen) {

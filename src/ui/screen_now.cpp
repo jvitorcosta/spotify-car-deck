@@ -73,7 +73,7 @@ static void drawBall(TFT_eSPI& t) {
                 case pokeball::Px::Dark:  c = theme::TEXT; break;
                 default:                  c = theme::BOX_FILL; break;
             }
-            buf[y * pokeball::SIZE + x] = (uint16_t)((c >> 8) | (c << 8));   // pushImage is big-endian
+            buf[y * pokeball::SIZE + x] = theme::be(c);   // pushImage is big-endian
         }
     t.pushImage(g_ballX, BALL_Y, pokeball::SIZE, pokeball::SIZE, buf);
 }
@@ -126,7 +126,7 @@ void drawWalker(TFT_eSPI& t, const AppState& st, uint32_t animMs, int step) {
     walkrect::Plan p = walkrect::plan(prev, {x0, BAR_Y - h - 1, w, h + 1}, SLACK);
     if (p.clearPrev) t.fillRect(prev.x, prev.y, prev.w, prev.h, theme::BOX_FILL);
     const walkrect::Rect& r = p.push;
-    const uint16_t fillBE = (uint16_t)((theme::BOX_FILL >> 8) | (theme::BOX_FILL << 8));
+    const uint16_t fillBE = theme::be(theme::BOX_FILL);
     for (int i = 0; i < r.w * r.h; ++i) buf[i] = fillBE;
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
@@ -169,8 +169,7 @@ void drawLyricArea(TFT_eSPI& t, const char* text, bool notes) {
     const char* line = text ? text : "";
     if (notes == g_lastNotes && strncmp(g_lastLyric, line, sizeof(g_lastLyric)) == 0) return;
     g_lastNotes = notes;
-    strncpy(g_lastLyric, line, sizeof(g_lastLyric) - 1);
-    g_lastLyric[sizeof(g_lastLyric) - 1] = '\0';
+    txt::copy(g_lastLyric, line, sizeof(g_lastLyric));
 
     const int ix = DLG_X + 6, iy = DLG_Y + 5, iw = DLG_W - 12, ih = DLG_H - 10;
     t.fillRect(ix, iy, iw, ih, theme::DLG_FILL);

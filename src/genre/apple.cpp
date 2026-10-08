@@ -1,6 +1,7 @@
 #include "apple.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include "../net/http_config.h"
 #include "../util/genre.h"
 #include "../util/text.h"
 
@@ -17,13 +18,11 @@ Result lookup(const char* artist, uint32_t* genreId, int* rc) {
     snprintf(url, sizeof(url),
              "https://itunes.apple.com/search?term=%s&entity=musicArtist&limit=1&country=BR", term);
     WiFiClientSecure client;
-    client.setInsecure();
-    client.setHandshakeTimeout(8);
+    netcfg::secure(client);
     HTTPClient https;
-    https.useHTTP10(true);
-    https.setTimeout(8000);
+    netcfg::streamed(https);
     if (!https.begin(client, url)) { *rc = -1; return Result::Error; }
-    https.addHeader("User-Agent", "PokeDeck/1.0 (ESP32)");
+    https.addHeader("User-Agent", netcfg::USER_AGENT);
     *rc = https.GET();
     if (*rc != 200) { https.end(); return Result::Error; }
     WiFiClient* s = https.getStreamPtr();
@@ -32,7 +31,7 @@ Result lookup(const char* artist, uint32_t* genreId, int* rc) {
     while (len < sizeof(g_body) - 1 && (https.connected() || s->available())) {
         int a = s->available();
         if (a <= 0) {
-            if (millis() - last > 8000) break;   // stalled: parse what arrived
+            if (millis() - last > netcfg::STALL_MS) break;   // stalled: parse what arrived
             delay(1);
             continue;
         }

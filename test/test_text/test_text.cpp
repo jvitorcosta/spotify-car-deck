@@ -103,8 +103,31 @@ void test_url_encode_truncates_whole_escapes() {
     txt::urlEncode(nullptr, p, sizeof(p));
     TEST_ASSERT_EQUAL_STRING("", p);
 }
+void test_copy_truncates_and_terminates() {
+    char b[4] = "zzz";
+    txt::copy(b, "abcdef", sizeof(b));
+    TEST_ASSERT_EQUAL_STRING("abc", b);
+    txt::copy(b, "ok", sizeof(b));
+    TEST_ASSERT_EQUAL_STRING("ok", b);
+    txt::copy(b, nullptr, sizeof(b));
+    TEST_ASSERT_EQUAL_STRING("", b);
+    char one[1] = {'x'};
+    txt::copy(one, "abc", 1);                 // room for the NUL only
+    TEST_ASSERT_EQUAL_CHAR('\0', one[0]);
+}
+void test_equals_ignore_case() {
+    TEST_ASSERT_TRUE(txt::equalsIgnoreCase("Smartphone", "smartphone"));
+    TEST_ASSERT_TRUE(txt::equalsIgnoreCase("TV", "tv"));
+    TEST_ASSERT_FALSE(txt::equalsIgnoreCase("tv", "tvs"));
+    TEST_ASSERT_FALSE(txt::equalsIgnoreCase("tvs", "tv"));
+    TEST_ASSERT_FALSE(txt::equalsIgnoreCase(nullptr, "tv"));
+    TEST_ASSERT_FALSE(txt::equalsIgnoreCase("tv", nullptr));
+    TEST_ASSERT_TRUE(txt::equalsIgnoreCase("", ""));
+}
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_copy_truncates_and_terminates);
+    RUN_TEST(test_equals_ignore_case);
     RUN_TEST(test_url_encode_reserved_and_utf8);
     RUN_TEST(test_url_encode_truncates_whole_escapes);
     RUN_TEST(test_copy_id_short_is_copied_verbatim);

@@ -2,21 +2,20 @@
 #include "../util/lrcstream.h"
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <cctype>
+#include "../net/http_config.h"
+#include "../util/text.h"
 
 namespace lyricsvc {
 
 static lyricbuf::Lyrics g_arena;   // ~5.6 KB, static: allocated once
 lyricbuf::Lyrics& arena() { return g_arena; }
 
+// Query value via the shared, bounded encoder (one String instead of one per byte). AppState
+// fields are < 96 bytes, so the encoded form (<= 3 bytes each) always fits.
 static String urlEncode(const char* s) {
-    String out;
-    for (const char* p = s; *p; ++p) {
-        unsigned char c = (unsigned char)*p;
-        if (isalnum(c)) out += (char)c;
-        else { char b[4]; snprintf(b, sizeof(b), "%%%02X", c); out += b; }
-    }
-    return out;
+    char buf[300];
+    txt::urlEncode(s, buf, sizeof(buf));
+    return String(buf);
 }
 
 // One request into `out`. *rc: HTTP status (negative: HTTPClient connect/TLS/timeout error).
@@ -26,13 +25,11 @@ static lrcstream::Kind request(const String& url, lrcstream::Mode mode, uint32_t
     *stalled = false;
     lyricbuf::reset(out);
     WiFiClientSecure client;
-    client.setInsecure();
-    client.setHandshakeTimeout(8);
+    netcfg::secure(client);
     HTTPClient https;
-    https.useHTTP10(true);          // plain (non-chunked) body: scan straight from the stream
-    https.setTimeout(8000);
+    netcfg::streamed(https);   // plain (non-chunked) body: scan straight from the stream
     if (!https.begin(client, url)) { *rc = -1; return lrcstream::Kind::None; }
-    https.addHeader("User-Agent", "PokeDeck/1.0 (ESP32)");
+    https.addHeader("User-Agent", netcfg::USER_AGENT);
     *rc = https.GET();
     if (*rc != 200) { https.end(); return lrcstream::Kind::None; }
     // Stream straight into the arena (no JSON document: ArduinoJson grew the string by
@@ -44,7 +41,7 @@ static lrcstream::Kind request(const String& url, lrcstream::Mode mode, uint32_t
     while (!ex.done() && (https.connected() || s->available())) {
         int a = s->available();
         if (a <= 0) {
-            if (millis() - last > 8000) { *stalled = true; break; }
+            if (millis() - last > netcfg::STALL_MS) { *stalled = true; break; }
             delay(1);
             continue;
         }

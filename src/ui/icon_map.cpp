@@ -1,6 +1,5 @@
 #include "icon_map.h"
-#include <cctype>
-#include <cstring>
+#include "../util/text.h"
 
 namespace icons {
 
@@ -47,11 +46,7 @@ static const char* const ART[][SIZE] = {
     },
 };
 
-static bool eq(const char* a, const char* b) {
-    for (; *a && *b; ++a, ++b)
-        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
-    return *a == *b;
-}
+static bool eq(const char* a, const char* b) { return txt::equalsIgnoreCase(a, b); }
 
 Icon forDevice(const char* t) {
     if (!t || !t[0]) return Icon::Speaker;

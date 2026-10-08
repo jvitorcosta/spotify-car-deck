@@ -1,4 +1,5 @@
 #include "netplan.h"
+#include "text.h"
 #include <cstring>
 
 namespace netplan {
@@ -6,8 +7,7 @@ namespace netplan {
 bool TrackGen::update(const char* track) {
     if (!track || !track[0]) return false;
     if (strncmp(track, last_, sizeof(last_) - 1) == 0) return false;
-    strncpy(last_, track, sizeof(last_) - 1);
-    last_[sizeof(last_) - 1] = '\0';
+    txt::copy(last_, track, sizeof(last_));
     ++gen_;
     return true;
 }

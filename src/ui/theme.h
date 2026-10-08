@@ -56,6 +56,13 @@ constexpr uint16_t darken(uint16_t c) {
     return (uint16_t)(((c >> 1) & 0x7800) | ((c >> 1) & 0x03E0) | ((c >> 1) & 0x000F));
 }
 
+// RGB565 with the bytes swapped: TFT_eSPI pushImage() buffers are big-endian.
+constexpr uint16_t be(uint16_t c) { return (uint16_t)((c >> 8) | (c << 8)); }
+
+// The 18 Pokemon types (lowercase PokéAPI names), index 0..typeCount()-1; "" out of range.
+int typeCount();
+const char* typeName(int i);
+
 // Accent color for a PokéAPI type name (lowercase canonical). Null/unknown -> GBA_NAVY.
 uint16_t typeColor(const char* type);
 }

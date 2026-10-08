@@ -136,6 +136,17 @@ These are candidates for `docs/BACKLOG.md`, each needing a board session.
 - **D3** **Fix the defects in G** (G1–G3) as part of this effort, as `fix:` commits.
 - **D4** Prefix renaming (`s_` for file-static state): **yes, on a separate branch** after D1–D3 land.
 
+## Findings during the cleanup
+
+- Phase 4: deduplicating the refresh-token fallback in `spotify/client.cpp` (a helper returning
+  `String`) fragmented the heap on the board: largest free block 34.8 KB -> 17-21 KB after the
+  first track (every pre-cleanup session: 34.8 KB, 63 readings). Bisected to that helper (client.cpp
+  from Phase 3: 34.8 KB; Phase 4 minus the helper: 34.8 KB). Kept the original code with a comment;
+  the fragile `g_accessToken` heap String is in the backlog.
+- Phase 4 flash: +64 B over the baseline (shared helpers are real functions); RAM -8 B.
+- Stream-read loop deduplication (B, last row) skipped: the loops differ (partial reads,
+  stall flags, sinks) and a shared one would add risk without saving RAM.
+
 ## Sources (best-practice research)
 
 - PlatformIO: dependencies/pinning https://docs.platformio.org/en/latest/librarymanager/dependencies.html ·

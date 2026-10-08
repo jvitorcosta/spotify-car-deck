@@ -86,8 +86,21 @@ void test_text_is_high_contrast() {
     TEST_ASSERT_TRUE(contrast(theme::TEXT, theme::DLG_FILL) >= 7.0);
     TEST_ASSERT_TRUE(contrast(theme::BOX_FILL, theme::TOP_DARK) >= 7.0);
 }
+void test_be_swaps_bytes_for_push_image() {
+    static_assert(theme::be(0x1234) == 0x3412, "constexpr");
+    TEST_ASSERT_EQUAL_HEX16(0x3412, theme::be(0x1234));
+    TEST_ASSERT_EQUAL_HEX16(theme::rgb(0xF8, 0xF8, 0xD8), theme::be(theme::be(theme::rgb(0xF8, 0xF8, 0xD8))));
+}
+void test_type_names_are_the_18_types() {
+    TEST_ASSERT_EQUAL_INT(18, theme::typeCount());
+    TEST_ASSERT_EQUAL_STRING("normal", theme::typeName(0));
+    TEST_ASSERT_EQUAL_STRING("fairy", theme::typeName(17));
+    TEST_ASSERT_EQUAL_STRING("", theme::typeName(18));
+}
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_be_swaps_bytes_for_push_image);
+    RUN_TEST(test_type_names_are_the_18_types);
     RUN_TEST(test_hp_and_volume_bars_stand_out_from_the_empty_track);
     RUN_TEST(test_off_icons_visible_but_distinct_from_on);
     RUN_TEST(test_text_is_high_contrast);

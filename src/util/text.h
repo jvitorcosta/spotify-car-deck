@@ -21,4 +21,8 @@ void copyId(const char* src, char* dst, size_t n);
 // are kept, every other byte (UTF-8 included) becomes %XX. Writes at most n bytes incl. NUL,
 // never a partial %XX; returns the encoded length. nullptr -> "".
 size_t urlEncode(const char* s, char* out, size_t n);
+// Copies src into dst (n bytes incl. NUL), truncating; always NUL-terminated. nullptr -> "".
+void copy(char* dst, const char* src, size_t n);
+// ASCII case-insensitive equality; false if either side is nullptr.
+bool equalsIgnoreCase(const char* a, const char* b);
 }

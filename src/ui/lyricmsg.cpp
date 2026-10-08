@@ -1,4 +1,5 @@
 #include "lyricmsg.h"
+#include "../util/text.h"
 #include <cstring>
 
 namespace lyricmsg {
@@ -105,8 +106,7 @@ void compose(const In& in, Out& out) {
                 break;
             }
             if (!in.line || !in.line[0]) break;   // empty timed line (break): IDLE, never blank
-            strncpy(out.text, in.line, TEXT_CAP - 1);
-            out.text[TEXT_CAP - 1] = '\0';
+            txt::copy(out.text, in.line, TEXT_CAP);
             out.dance = out.notes;            // timed lyrics: the notes bob along
             return;
         case Status::Instrumental:
