@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
+#include "board/board.h"
 #include "pins.h"
 #include "net/wifi.h"
 #include "net/clock.h"
@@ -98,6 +99,7 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.printf("[boot] reset reason: %s\n", resetReason());
+    board::begin();
     esp_task_wdt_init(TASK_WDT_S, true);   // reconfigures the already-running watchdog
     mem::installFailHook();
     pinMode(PIN_BL, OUTPUT); digitalWrite(PIN_BL, HIGH);

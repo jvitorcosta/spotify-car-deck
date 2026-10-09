@@ -1,16 +1,13 @@
 #include "cache.h"
 #include <SD.h>
-#include <SPI.h>
-#include "pins.h"
+#include "../board/board.h"
 
 namespace cache {
 
-static SPIClass s_sdSPI(VSPI);
 static bool s_ready = false;
 
 bool begin() {
-    s_sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    s_ready = SD.begin(SD_CS, s_sdSPI, 4000000, "/sd", 1);   // one file open at a time: the default 5 cost heap
+    s_ready = board::sdMount();
     if (s_ready && !SD.exists("/sprites")) SD.mkdir("/sprites");
     if (s_ready && !SD.exists("/pmd")) SD.mkdir("/pmd");
     Serial.printf("[cache] SD %s\n", s_ready ? "ready" : "unavailable");

@@ -25,7 +25,7 @@ Prerequisites: [PlatformIO Core](https://docs.platformio.org/en/latest/core/inst
 2. Get a refresh token on the PC: `python tools/spotify_auth.py` (opens the browser, writes the
    token into `src/config.h`; Spotify only allows loopback `http` redirects, so this can't run
    on the device).
-3. Build and flash: `pio run -e esp32dev -t upload` (add `--upload-port <port>` if needed;
+3. Build and flash: `pio run -e cyd -t upload` (add `--upload-port <port>` if needed;
    `pio device list` shows ports). Serial log: `pio device monitor` (115200 baud).
 
 Hardware bring-up without WiFi/Spotify: `pio run -e hwcheck -t upload` (display, colours,
@@ -38,7 +38,7 @@ default. To use your own (any sound, up to 13 s), convert a WAV file and rebuild
 
 ```
 python tools/gen_greeting.py my_sound.wav     # -> data/greeting.pcm (git-ignored)
-pio run -e esp32dev -t upload
+pio run -e cyd -t upload
 ```
 
 Other formats: convert to WAV first (e.g. `ffmpeg -i my_sound.mp3 my_sound.wav`). Delete
