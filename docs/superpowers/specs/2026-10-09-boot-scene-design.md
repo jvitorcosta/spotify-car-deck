@@ -5,7 +5,7 @@ Date: 2026-10-09. Status: approved design, not implemented.
 ## Goal
 
 While the boot greeting plays (`audio/greeting`, e.g. the ETC card voice), the screen shows a
-2D animation: a side view of the owner's silver **Honda City 2022 sedan** (trunk lip spoiler,
+2D animation: a side view of the owner's silver **Honda City sedan (2024)** (trunk lip spoiler,
 RGB underglow) driving along a road at night. The car drives in, cruises for at least 5 s and
 for as long as WiFi is still connecting, then drives off and the deck starts. The car's lights
 react to the sound.
@@ -15,8 +15,8 @@ react to the sound.
 - Scene **A, "GBA night road"** (mockup chosen 2026-10-09): banded navy sky with stars and a
   moon, a city skyline in slow parallax, streetlights passing, guardrail, road with moving lane
   dashes. Always the night look (independent of night mode).
-- The car is **large and faithful to the City 2022 sedan**: 200 × 65 px (about two thirds of the
-  screen width), proportions from the real car (4549 mm long, 1477 mm tall, 2600 mm
+- The car is **large and faithful to the City sedan (7th gen, the owner's 2024)**: 200 × 66 px
+  (about two thirds of the screen width), proportions from the real car (4549 mm long, 1477 mm tall, 2600 mm
   wheelbase). No badges. Owner's details: **trunk lip spoiler** (body colour) and **RGB
   underglow cycling through the hues**.
 - **Stays at least 5 s, and until WiFi is up**: enter, cruise, exit. If WiFi isn't found the car
@@ -80,37 +80,75 @@ start together in `setup()`; task start jitter is a few ms, below what the eye n
 
 ## Car sprite (`tools/gen_car_sprite.py` → `src/ui/car_sprite.inc`, `ui/car_sprite`)
 
-200 × 65 px is too large to hand-type as a character grid, so the generator **builds it from
-geometry**, then adds pixel details; the output is committed, like `status_sprite.inc`.
-Coordinates: x from the rear bumper (0) to the nose (200), y from the roof (0) down to the
-ground line (65). Facing right.
+Reference: the 7th-generation City sedan (Brazil 2022–2024, same body as the 2023 Asian
+facelift), from freely licensed photos on Wikimedia Commons and Honda Brazil's published
+data: 4549 mm long, 1477 mm tall, 2600 mm wheelbase, 185/55 R16 tyres, LED headlights with DRL,
+LED taillights, shark-fin antenna, body-coloured mirrors with LED indicators, 16" two-tone
+alloys. Scale: 200 px = 4549 mm, so **1 px ≈ 22.7 mm**.
 
-- **Body outline** (polygon): rear bumper and wrap-around taillight corner, short trunk deck at
-  y≈23, **fastback-like rear window/C-pillar** rising from the trunk (x≈30) to the roof, roof
-  peak y≈1 at x≈90–108, windshield falling to the cowl at x≈140, **long hood** sloping from
-  y≈22 to the nose at y≈30, rounded nose, front and rear wheel cut-outs.
-- **Greenhouse** (polygon): side glass with a black B-pillar at x≈96, rear quarter-glass divider,
-  chrome trim along the beltline (y≈21–22), reflections on the windshield and rear door glass.
-- **Shading bands** (top to bottom): mid #A3ABB4 above the beltline, highlight #EEF2F5 band
-  under it, body #B9C0C8, mid lower, shade #7C858F, deep #5D656E at the rocker.
-- **City 2022 cues**: character line rising slightly toward the rear (highlight above, shade
-  below); lower door crease; door shut lines and two handles; side mirror; fuel door on the
-  rear quarter; **thin slanted LED headlight** with the **chrome bar** below it and a dark lower
-  grille; **wrap-around taillight** (#FF4040 / #C01818 with a light top edge); rear reflector;
-  dark side skirt between the wheels.
-- **Trunk lip spoiler**: body-coloured ducktail raised 1–2 px above the trunk edge, x≈3–15.
-- Wheel arches are dark (#22262E, rim #5D656E) at radius 17.5 around each wheel centre.
-- Lamp pixels carry a kind (headlight / taillight) so the drawing code recolours them from the
-  loudness; everything else keeps its colour.
-- API like `status_sprite`: `width()`, `height()`, `pixel(x, y, &rgb565, &kind)` where kind is
-  body / headlight / taillight / transparent.
+200 × 66 px is too large to hand-type as a character grid, so the generator **builds it from
+geometry** (polygons and lines, the same shapes as the chosen mockup), then adds pixel details;
+the output is committed, like `status_sprite.inc`. Coordinates: x from the rear bumper (0) to
+the nose (200), y from the roof (0) down to the ground line (65). Facing right.
 
-Wheels are drawn in code so they can spin: centres at sprite x=46 (rear) and x=160 (front),
-y=51; tyre r=14 #141414, rim r=10.5 with a #9AA0A8 lip, 10 two-tone spokes (#D6DADF /
-#7D838B, the 16" alloy look), hub r≈2 #C8CCD2 with a dark centre.
+Proportions (from the real car):
 
-The brainstorm mockup (`city-2022.html` under the git-ignored `.superpowers/brainstorm/`) is the
-visual reference for the generator; the geometry above is what the generator encodes.
+| Feature | Value |
+|---|---|
+| Wheel centres | x = 46 (rear, 1044 mm overhang), x = 160 (front, 905 mm overhang), y = 51.5 |
+| Tyre / rim | r = 13.5 (610 mm tyre) / r = 9.5 (16" rim) |
+| Roof peak | y ≈ 1 at x ≈ 86–112 |
+| Window bottom (beltline) | y ≈ 21 (≈ 1000 mm above the ground) |
+| Shoulder line | y ≈ 27 (≈ 870 mm), nearly level, very slightly rising toward the rear |
+| Trunk deck | y ≈ 19–21, short (x ≈ 3–26), as high as the beltline |
+| Cowl / windshield base | x ≈ 144, y ≈ 20; windshield top x ≈ 120 |
+| Nose | y ≈ 30–52, rounded, front bumper bottom y ≈ 54 |
+| Wheel arches | radius 17.5 around (x, 54) |
+
+Body outline (polygon, clockwise from the rear bumper bottom):
+(4,51) (1,46) (0,38) (0,29) (1,24) (3,21) (22,19.2) (26,19) (40,12) (56,5) (70,2.2) (86,1.2)
+(100,1) (112,2) (120,4) (134,13) (144,20) (150,21.5) (172,25) (188,28) (196,30.5) (199,34)
+(200,40) (199,47) (196,52) (186,54) (178,54), front arch, (64,55), rear arch, (12,52).
+
+Side glass (polygon): (48,20.6) (60,9.5) (72,4.6) (86,3.4) (100,3.2) (111,4) (119,6.2)
+(133,15.6) (139,20.3): the rear door glass **ends in a point** under a thick body-coloured
+C-pillar.
+
+Details, all from the reference photos:
+
+- **Paint shading**, silver (Prata Lunar): above the beltline #A7AFB8; band above the shoulder
+  line #D5DBE1 with a #EEF2F5 top edge; the crease below it #7C858F (2 px); body #BCC3CB down
+  to the lower crease; #959EA8 below it; rocker #5D656E. Roof highlight #EEF2F5.
+- **Shoulder line**: the sharp crease from the back of the headlight to the front of the
+  taillight; the **door handles sit on it** (chrome #E8ECEF over a #2C3038 shadow, 7 px, at
+  x ≈ 82 and 122).
+- **Lower door crease** rising from the front door bottom (y ≈ 48) toward the rear wheel.
+- **Black B-pillar** x ≈ 96–99, quarter-glass divider at x ≈ 60–63, chrome beltline strip,
+  reflections on the windshield and rear door glass (#4F6D92).
+- **Shark-fin antenna** at the rear of the roof (x ≈ 75–82, 2 px tall, #2C3038).
+- **Door-mounted mirror** (body colour) with an **amber LED indicator** line.
+- **Fuel door** outline on the rear quarter (x ≈ 36–42, y ≈ 28–33).
+- **Headlight**: slim smoked wedge (#28323F) sweeping back along the top of the fender from the
+  nose to x ≈ 164; a row of LED projector pixels and a **white DRL strip** along its lower edge;
+  a chrome edge on top; chrome bar at the nose.
+- **Black triangular corner intake** in the front bumper, dark lower lip.
+- **Wrap-around taillight** where the shoulder line ends (x ≈ 0–21, y ≈ 22–29; #FF5050 top,
+  #B81414 bottom, a #FF8080 Z-shaped LED strip); small red **reflector** low on the rear bumper.
+- **Trunk lip spoiler** (owner's): body-coloured ducktail 1–2 px above the trunk edge, x ≈ 2–15.
+- Door shut lines (front door along the A-pillar base, B-pillar, rear door curving round the
+  rear arch), hood/fender shut line, dark side skirt between the wheels.
+- Wheel arches: very dark liner #0E1016 inside, #5D656E lip.
+- **Pixel kinds**: upper paint (above the shoulder line), lower paint, headlight, taillight,
+  other, transparent. The drawing code recolours lamps from the loudness and adds the
+  streetlight reflection to paint pixels (see Scene).
+- API like `status_sprite`: `width()`, `height()`, `pixel(x, y, &rgb565, &kind)`.
+
+Wheels are drawn in code so they can spin: tyre #141414 r = 13.5, rim lip #C9CED4, dark rim
+face #2B2F36, **5 twin spokes** (machined face #DFE3E8 with a #AAB0B8 edge, the two-tone 16"
+alloy), hub #C8CCD2 with a dark centre.
+
+The brainstorm mockup (`city-2024-v3.html` under the git-ignored `.superpowers/brainstorm/`) is
+the visual reference for the generator; the geometry above is what the generator encodes.
 
 ## Scene (`ui/bootscene`)
 
@@ -138,6 +176,12 @@ cone alpha-blended); guardrail #6B7089 (y 148–151) and #2A2E44 (y 152–153); 
 (y 154–217) and #1B1E2B (y 218–239); lane dashes 26 × 3 #D8D8C0 every 48 px at y 226; car
 shadow; underglow (sill tube + light pool on the road); headlight beam; car sprite with its
 ground line at y 214; wheels.
+
+**Streetlight reflections**: the streetlight nearest the car's middle lights the paint below it.
+For paint pixels, with `d` = horizontal distance to that lamp, blend toward #FFF0C8 by
+`0.55 * (1 - d / 26)` for upper paint and `0.30 * (1 - d / 18)` for lower paint (0 outside).
+As the lamps scroll past, a warm highlight sweeps across the car (done per pixel while the
+strip is rendered).
 
 Each strip is fully rendered before it is pushed, so nothing flickers. Target 25 fps (40 ms
 frame budget); the average frame time is logged when the scene ends.
@@ -171,7 +215,7 @@ nettask::start(spotifyReady);
 
 - Scene task: core 1, priority 1, 4 KB stack. The 15 KB strip sprite is allocated at start and
   freed when the scene ends. `mem::log("bootscene")` at start and end.
-- The car sprite lives in flash (200 × 65 RGB565 + kind bits, about 26 KB).
+- The car sprite lives in flash (200 × 66 RGB565 + kind bits, about 30 KB).
 - TFT_eSPI is not thread-safe: while the scene is active only the scene task draws
   (`setup()` waits or draws nothing, `loop()` skips).
 
@@ -190,7 +234,7 @@ nettask::start(spotifyReady);
     bob; light mappings at e = 0 and 255; hue wrap.
   - `test_loudness`: silence → 0, full scale → 255, window clamped at the clip end, odd byte
     alignment.
-  - `test_car_sprite`: size 200 × 65; transparent corners above the trunk and in front of the
+  - `test_car_sprite`: size 200 × 66; transparent corners above the trunk and in front of the
     windshield; a body pixel's colour; headlight and taillight pixel kinds; spoiler pixels
     present above the trunk line.
 - On the deck: watch the scene with WiFi available (car leaves at about 5.9 s) and with the
