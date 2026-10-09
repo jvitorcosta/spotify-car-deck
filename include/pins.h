@@ -15,7 +15,7 @@ static const int PIN_I2S_WS = 7;
 static const int PIN_I2S_DOUT = 8;
 static const int PIN_I2S_DIN = 6;
 static const int PIN_AMP_EN = 1;
-static const int AMP_ON = 0;                        // LOW plays (Freenove's example; hwcheck_s3 verifies)
+static const int AMP_ON = 0;                        // LOW plays (verified with hwcheck_s3, 2026-10-09)
 // SD card (SDMMC 4-bit), unused for now: CLK 38, CMD 40, D0 39, D1 41, D2 48, D3 47.
 
 #elif defined(BOARD_CYD)
