@@ -23,6 +23,7 @@ bool begin();
 bool loadPmd(int dex);                            // -> staged
 bool loadFallback(const char* spriteUrl, int dex); // -> staged
 int stagedDex();                                  // dex in the staged slot, 0 if none
+bool outOfMemory();                               // the last load failed only for lack of heap (retry)
 void promote();                                   // staged <-> active
 
 const Info& info();                  // active slot

@@ -15,6 +15,7 @@
 #include "../util/genre.h"
 #include "../ui/genrebadge.h"
 #include "../genre/apple.h"
+#include "../ui/bootscene.h"
 
 // History (README "Design & performance history"): these calls used to run inline in
 // loop(). Each is a fresh TLS handshake (poll ~1.5 s, player ~1.4 s, PokeAPI 4.2 s, art
@@ -27,6 +28,7 @@ static netplan::TrackGen s_gen;
 static netplan::Work s_work{};
 static netplan::LinkGate s_link;   // "No signal" only after several failed polls in a row
 static netplan::Health s_health;   // pause optional work / restart when polls keep failing
+static netplan::WalkRetry s_walkRetry;       // PNG decoder didn't fit: retry after the polls
 static netplan::LyricsRetry s_lyricsRetry;   // 5 s / 20 s retries after LRCLIB hiccups
 static genre::Cache s_genres;   // last 32 artists' badges: repeats cost no request
 static uint32_t s_failsAtOk = 0;   // mem::failTotal() at the last good poll
@@ -72,7 +74,11 @@ static bool doStep(netplan::Step step) {
         case netplan::Step::Walk: {
             tick();
             bool ok = walk::loadPmd(s_st.pokedexNum) ||
-                      walk::loadFallback(s_st.pokeSpriteUrl, s_st.pokedexNum);
+                      (!walk::outOfMemory() && walk::loadFallback(s_st.pokeSpriteUrl, s_st.pokedexNum));
+            if (!s_walkRetry.onResult(ok, walk::outOfMemory())) {
+                tock("walk (no heap, retry later)");
+                return false;
+            }
             tock("walk");
             if (ok) {
                 { shared::Guard g; walk::promote(); }
@@ -110,7 +116,11 @@ static bool doStep(netplan::Step step) {
             char url[160];
             dex::spriteUrl(n, url, sizeof(url));
             tick();
-            bool ok = walk::loadPmd(n) || walk::loadFallback(url, n);
+            bool ok = walk::loadPmd(n) || (!walk::outOfMemory() && walk::loadFallback(url, n));
+            if (!s_walkRetry.onResult(ok, walk::outOfMemory())) {
+                tock("prefetch (no heap, retry later)");
+                return false;
+            }
             s_prefetchDex = ok ? n : 0;
             tock(ok ? "prefetch" : "prefetch failed");
             break;
@@ -148,6 +158,8 @@ static void run(void*) {
     for (;;) {
         if (!s_spotifyReady) {                 // WiFi wasn't up at boot: keep trying
             if (net::isOnline() || net::connectAny()) {
+                // The boot scene leaves once WiFi is up; let it free its strip before TLS needs heap.
+                while (bootscene::active()) vTaskDelay(pdMS_TO_TICKS(100));
                 spclient::begin();
                 netclock::begin();
                 s_spotifyReady = true;

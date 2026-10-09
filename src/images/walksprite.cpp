@@ -55,7 +55,9 @@ static inline bool bitAt(const uint8_t* bits, int x) { return (bits[x >> 3] >> (
 // Decodes rows [rowY0, rowY0+rowH) of a sheet holding `frames` frames of frameW pixels side
 // by side. Pass 1 finds the opaque bounding box shared by all frames; pass 2 writes the
 // cropped, band-fitted frames straight into the staged slot. No full-size copy.
-enum class Res { Ok, Unsupported, Corrupt };
+enum class Res { Ok, Unsupported, Corrupt, NoMemory };
+static bool s_noMemory = false;            // last load: the PNG decoder didn't fit
+bool outOfMemory() { return s_noMemory; }
 static constexpr int SHEET_MAX_W = 512;
 static int s_frameW, s_rowH, s_rowY0, s_frames, s_pass, s_k, s_kept, s_slot;
 static bool s_keyMode;                   // no alpha channel: top-left colour is transparent
@@ -101,8 +103,8 @@ static int regionDraw(PNGDRAW* d) {
 }
 
 // frameW <= 0 means "the whole image width is one frame" (fallback sprite).
-static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW, int maxFrames,
-                        bool pmd) {
+static Res decodeWith(uint8_t* data, size_t n, int rowY0, int rowH, int frameW, int maxFrames,
+                      bool pmd) {
     PNG& png = img::decoder();
     s_rowY0 = rowY0;
     for (s_pass = 1; s_pass <= 2; ++s_pass) {
@@ -138,6 +140,20 @@ static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW
     return Res::Ok;
 }
 
+// The decoder is borrowed from the heap for this decode only (img::acquire).
+static Res decodeRegion(uint8_t* data, size_t n, int rowY0, int rowH, int frameW, int maxFrames,
+                        bool pmd) {
+    if (!img::acquire()) {
+        Serial.printf("[walk] no heap for the PNG decoder (largest %u B)\n",
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+        s_noMemory = true;
+        return Res::NoMemory;
+    }
+    const Res r = decodeWith(data, n, rowY0, rowH, frameW, maxFrames, pmd);
+    img::release();
+    return r;
+}
+
 // ---------------------------------------------------------------- PMD sheet
 static constexpr int DIR_RIGHT = 2;          // PMD row order: Down, DownRight, Right, ...
 
@@ -158,6 +174,7 @@ static bool getCached(const String& path, const String& url, size_t* n, int* cod
 static dexset::Set s_noPmd;
 
 bool loadPmd(int dex) {
+    s_noMemory = false;
     s_slot = staged();
     s_info[s_slot].ready = false;
     s_dex[s_slot] = 0;
@@ -191,6 +208,7 @@ bool loadPmd(int dex) {
         return false;
     }
     Res r = decodeRegion(s_scratch, n, DIR_RIGHT * a.frameH, a.frameH, a.frameW, a.frames, true);
+    if (r == Res::NoMemory) return false;                  // nothing wrong with the sheet: retry later
     if (r != Res::Ok) {                                    // slot stays not-ready (cleared on entry)
         if (r == Res::Corrupt) {   // corrupt: drop the cache so the next play re-downloads
             cache::removePath(xmlPath);
@@ -211,6 +229,7 @@ bool loadPmd(int dex) {
 
 // ---------------------------------------------------------------- fallback
 bool loadFallback(const char* spriteUrl, int dex) {
+    s_noMemory = false;
     s_slot = staged();
     s_info[s_slot].ready = false;
     s_dex[s_slot] = 0;
@@ -222,6 +241,7 @@ bool loadFallback(const char* spriteUrl, int dex) {
         return false;
     }
     Res r = decodeRegion(s_scratch, n, 0, 0, 0, 1, false);
+    if (r == Res::NoMemory) return false;
     if (r != Res::Ok) {
         if (r == Res::Corrupt && fromCache) cache::removePath(cache::spritePath(dex));
         Serial.printf("[walk] no walker (sprite %s)\n", r == Res::Corrupt ? "corrupt" : "unsupported");

@@ -3,10 +3,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// PokeAPI sprite bytes + the single shared PNGdec instance. PNG objects are large
-// (~45 KB of inflate state), so every PNG decode in the firmware uses this one.
+// PokeAPI sprite bytes + the single shared PNGdec instance. PNG objects are large (~45 KB,
+// mostly the 32 KB inflate window), so it lives on the heap only while a decode runs: acquire()
+// before, release() after; decoder() is valid in between. Static, it kept 45 KB away from the
+// TLS handshakes all the time, which then ran out of memory (failed polls, lwIP allocfails).
 namespace img {
 
+bool acquire();      // false: no heap for the decoder right now (try again later)
+void release();
 PNG& decoder();
 
 // PokeAPI sprite bytes for dex `dex` into the caller's buffer: SD cache if present, else HTTPS

@@ -10,7 +10,7 @@ static bool s_ready = false;
 
 bool begin() {
     s_sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    s_ready = SD.begin(SD_CS, s_sdSPI);
+    s_ready = SD.begin(SD_CS, s_sdSPI, 4000000, "/sd", 1);   // one file open at a time: the default 5 cost heap
     if (s_ready && !SD.exists("/sprites")) SD.mkdir("/sprites");
     if (s_ready && !SD.exists("/pmd")) SD.mkdir("/pmd");
     Serial.printf("[cache] SD %s\n", s_ready ? "ready" : "unavailable");

@@ -17,3 +17,14 @@ src/config.h
 # OS
 Thumbs.db
 .DS_Store
+
+# Your own boot greeting (tools/gen_greeting.py clip.wav); the default chime is committed
+data/greeting.pcm
+
+# Owner photos of the car (contain the number plate)
+Photos-*.zip
+montage-photos/
+data/montage.bin
+greeting-sounds/
+data/finale.pcm
+data/opener.pcm

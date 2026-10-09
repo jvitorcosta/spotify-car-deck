@@ -58,4 +58,10 @@ bool LyricsRetry::onResult(lyricstatus::Result r, uint32_t nowMs) {
     return false;
 }
 
+
+bool WalkRetry::onResult(bool ok, bool outOfMemory) {
+    if (!ok && outOfMemory && ++tries_ < MAX_TRIES) return false;
+    tries_ = 0;
+    return true;
+}
 }

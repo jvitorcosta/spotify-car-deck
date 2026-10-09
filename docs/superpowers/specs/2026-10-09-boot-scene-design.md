@@ -1,6 +1,6 @@
 # Boot scene: design
 
-Date: 2026-10-09. Status: approved design, not implemented.
+Date: 2026-10-09. Status: implemented (feat/boot-scene); the drive-off was replaced in v2/v3.
 
 ## Goal
 

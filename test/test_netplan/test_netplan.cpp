@@ -206,6 +206,23 @@ void test_status_for_results() {
     TEST_ASSERT_EQUAL_INT((int)Status::Plain, (int)lyricstatus::statusFor(Result::Plain, true));
     TEST_ASSERT_EQUAL_INT((int)Status::Instrumental, (int)lyricstatus::statusFor(Result::Instrumental, true));
 }
+void test_walk_retry_out_of_memory_then_gives_up() {
+    netplan::WalkRetry r;
+    TEST_ASSERT_FALSE(r.onResult(false, true));    // decoder didn't fit: run the step again
+    TEST_ASSERT_FALSE(r.onResult(false, true));
+    TEST_ASSERT_TRUE(r.onResult(false, true));     // third attempt: give up (no walker this time)
+    TEST_ASSERT_FALSE(r.onResult(false, true));    // a fresh count for the next step
+}
+
+void test_walk_retry_other_results_are_final() {
+    netplan::WalkRetry r;
+    TEST_ASSERT_TRUE(r.onResult(true, false));
+    TEST_ASSERT_TRUE(r.onResult(false, false));    // missing / unsupported / network: not memory
+    TEST_ASSERT_FALSE(r.onResult(false, true));
+    TEST_ASSERT_TRUE(r.onResult(true, false));     // success ends the retries
+    TEST_ASSERT_FALSE(r.onResult(false, true));    // and starts the count over
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_first_track_bumps_generation);
@@ -234,5 +251,7 @@ int main(int, char**) {
     RUN_TEST(test_status_for_results);
     RUN_TEST(test_genre_done_skips_to_walk);
     RUN_TEST(test_can_run_genre_needs_tls);
+    RUN_TEST(test_walk_retry_out_of_memory_then_gives_up);
+    RUN_TEST(test_walk_retry_other_results_are_final);
     return UNITY_END();
 }

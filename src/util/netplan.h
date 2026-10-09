@@ -114,4 +114,15 @@ private:
     bool waiting_ = false;
     uint32_t since_ = 0, wait_ = 0;
 };
+
+// Walker loads: the PNG decoder (~45 KB) is allocated only for the decode. When it doesn't fit,
+// the step runs again after the next polls, MAX_TRIES attempts in all; other results are final.
+class WalkRetry {
+public:
+    static constexpr int MAX_TRIES = 3;
+    // Records one attempt; true when the step is finished (no further attempt).
+    bool onResult(bool ok, bool outOfMemory);
+private:
+    int tries_ = 0;
+};
 }

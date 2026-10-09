@@ -14,6 +14,8 @@
 #include "ui/pokeball.h"
 #include "ui/lyricmsg.h"
 #include "ui/backlight.h"
+#include "ui/bootscene.h"
+#include "audio/greeting.h"
 #include "ui/theme.h"
 #include "util/daynight.h"
 #include "util/genre.h"
@@ -111,13 +113,17 @@ void setup() {
     cache::begin();
     s_tft.init(); s_tft.invertDisplay(true); s_tft.setRotation(1); s_tft.fillScreen(TFT_BLACK);
     backlight::begin();
-    s_tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    s_tft.drawString("Connecting WiFi...", 10, 10, 2);
+    greeting::play();          // boot sound plays while WiFi connects
+    // Night drive while WiFi connects: the scene draws until the car leaves (>= 5 s, WiFi up).
+    bootscene::start(s_tft, net::isOnline);
+    bootscene::setCaption("Connecting WiFi...");
 
     bool spotifyReady = false;
     if (net::connectAny()) {
         mem::log("boot+wifi");
         netclock::begin();
+        bootscene::waitDone();               // the display is ours again
+        s_tft.setTextColor(TFT_WHITE, TFT_BLACK);
         s_tft.fillScreen(TFT_BLACK);
         s_tft.drawString("Spotify auth...", 10, 10, 2);
         if (spauth::loadRefreshToken().isEmpty()) {
@@ -127,7 +133,8 @@ void setup() {
         spclient::begin();
         spotifyReady = true;
     } else {
-        s_tft.drawString("WiFi not found - retrying...", 10, 40, 2);
+        // The scene keeps running; the network task retries and the car leaves once WiFi is up.
+        bootscene::setCaption("WiFi not found - retrying...");
     }
     nettask::start(spotifyReady);   // always: it keeps retrying WiFi if the hotspot is late
 }
@@ -156,6 +163,15 @@ static bool updateDayNight() {
 }
 
 void loop() {
+    if (bootscene::active()) {   // boot scene still on screen (WiFi wasn't up at boot)
+        delay(20);
+        return;
+    }
+    static uint32_t lastStackLog = 0;      // the loop task's stack use (8 KB default), once a minute
+    if (millis() - lastStackLog >= 60000) {
+        lastStackLog = millis();
+        Serial.printf("[mem] loop stackfree=%u\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    }
     AppState st;
     shared::snapshot(st);
     AppState view = st;   // interpolate progress for a smooth bar between polls
