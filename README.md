@@ -31,6 +31,21 @@ Prerequisites: [PlatformIO Core](https://docs.platformio.org/en/latest/core/inst
 Hardware bring-up without WiFi/Spotify: `pio run -e hwcheck -t upload` (display, colours,
 orientation, touch; `src/hwcheck.cpp`).
 
+### Boards
+
+The deck runs on two boards from the same code:
+
+| Board | Build target | Notes |
+|---|---|---|
+| ESP32-2432S028R "Cheap Yellow Display" | `cyd` (default) | speaker on the SPEAK connector (8-bit DAC), optional SPI microSD cache |
+| Freenove FNK0104B, ESP32-S3 2.8" | `s3` | 8 MB PSRAM, 16 MB flash, ES8311 codec + speaker (100 % + 6 dB codec gain); SD cache not used yet |
+
+The S3 flashes and logs over its own USB port: `pio run -e s3 -t upload --upload-port <port>`;
+capture logs with `python tools/capture_serial.py <port> 60 boot.log --no-reset`. Bring-up checks
+without WiFi/Spotify: `pio run -e hwcheck` (CYD) and `pio run -e hwcheck_s3` (S3: colours,
+backlight, PSRAM, a codec tone). Board-specific code lives in `src/board/cyd/` and
+`src/board/s3/`; pins in `include/pins.h`.
+
 ### Greeting (boot sound)
 
 On every boot the deck plays a short sound on the SPEAK connector: a built-in chime by

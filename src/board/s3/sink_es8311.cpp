@@ -8,14 +8,17 @@
 namespace audiosink {
 
 // Clean codec path (no 8-bit DAC distortion): conservative start, tuned by ear (spec section 3).
-extern const int GREETING_VOLUME = 50;
-extern const int FINALE_VOLUME = 25;
+extern const int GREETING_VOLUME = 100;
+extern const int FINALE_VOLUME = 100;
 
 namespace {
 constexpr i2s_port_t PORT = I2S_NUM_0;
 constexpr int DMA_BUFS = 4;
 constexpr int DMA_LEN = 256;
 constexpr int CHUNK = 128;                 // mono samples per i2s_write
+// Codec DAC gain (0xBF = 0 dB, 0.5 dB steps). The clips peak near full scale, so each dB above
+// 0 shaves the loudest peaks; +6 dB was the owner's pick by ear after 100 % volume.
+constexpr uint8_t CODEC_GAIN = 0xCB;
 constexpr int MCLK_MULT = 384;             // Freenove's tested setting: 6.144 MHz at 16 kHz
 int s_rate = 16000;
 bool s_wire = false;
@@ -46,7 +49,8 @@ bool open(int clipRate) {
     pins.data_out_num = PIN_I2S_DOUT;
     pins.data_in_num = I2S_PIN_NO_CHANGE;
     i2s_set_pin(PORT, &pins);
-    if (!s_wire || !es8311::begin(clipRate, clipRate * MCLK_MULT)) {   // MCLK is running: codec can clock
+    if (!s_wire || !es8311::begin(clipRate, clipRate * MCLK_MULT) ||   // MCLK is running: codec can clock
+        !es8311::setVolume(CODEC_GAIN)) {
         Serial.println("[audio] ES8311 not answering");
         i2s_driver_uninstall(PORT);
         return false;
