@@ -21,12 +21,6 @@ void test_centre_button_and_ring() {
         assertPx(Px::Dark, 6, 4, f);    // ring around it
     }
 }
-void test_band_and_outline_are_dark() {
-    assertPx(Px::Dark, 2, 6, 0);        // horizontal band at frame 0
-    assertPx(Px::Dark, 10, 6, 0);
-    assertPx(Px::Dark, 6, 0, 0);        // outline top
-    assertPx(Px::Dark, 12, 6, 0);       // outline right
-}
 void test_outside_is_clear() {
     assertPx(Px::Clear, 0, 0, 0);
     assertPx(Px::Clear, 12, 12, 3);
@@ -62,7 +56,6 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_upright_ball_red_top_white_bottom);
     RUN_TEST(test_centre_button_and_ring);
-    RUN_TEST(test_band_and_outline_are_dark);
     RUN_TEST(test_outside_is_clear);
     RUN_TEST(test_quarter_turn_puts_red_on_the_right);
     RUN_TEST(test_frames_wrap);

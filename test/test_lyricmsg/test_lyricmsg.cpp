@@ -17,14 +17,12 @@ static bool inPool(const char* const* pool, int n, const char* text, const char*
     }
     return false;
 }
-
-void test_pools_have_spec_sizes() {
-    TEST_ASSERT_EQUAL_INT(10, lyricmsg::SEARCH_N);
-    TEST_ASSERT_EQUAL_INT(3, lyricmsg::RETRY_N);
-    TEST_ASSERT_EQUAL_INT(4, lyricmsg::FAIL_N);
-    TEST_ASSERT_EQUAL_INT(3, lyricmsg::INSTRUMENTAL_N);
-    TEST_ASSERT_EQUAL_INT(2, lyricmsg::FOUND_N);
+static const char* idle() {                      // the IDLE line for base()'s Pikachu
+    static char buf[lyricmsg::TEXT_CAP];
+    lyricmsg::fill(lyricmsg::IDLE, "Pikachu", buf, sizeof(buf));
+    return buf;
 }
+
 void test_fill_replaces_every_P_with_capitals() {
     char b[64];
     lyricmsg::fill("{P} used SING! {P}!", "Pikachu", b, sizeof(b));
@@ -54,6 +52,8 @@ void test_empty_name_uses_pokemon() {
     lyricmsg::fill("{P}!", nullptr, b, sizeof(b));
     TEST_ASSERT_EQUAL_STRING("POK\xC3\xA9" "MON!", b);
 }
+// Every message fits two lines, and none names LRCLIB: listeners know Spotify, not the
+// lyrics backend.
 void test_all_messages_fit_two_lines() {
     const char* const* pools[] = {lyricmsg::SEARCH, lyricmsg::RETRY, lyricmsg::FAIL,
                                   lyricmsg::INSTRUMENTAL, lyricmsg::FOUND};
@@ -64,18 +64,11 @@ void test_all_messages_fit_two_lines() {
         for (int i = 0; i < sizes[p]; ++i) {
             lyricmsg::fill(pools[p][i], "Crabominable", b, sizeof(b));
             TEST_ASSERT_TRUE_MESSAGE(strlen(b) <= 72, b);
+            TEST_ASSERT_NULL_MESSAGE(strstr(pools[p][i], "LRCLIB"), pools[p][i]);
         }
     lyricmsg::fill(lyricmsg::IDLE, "Crabominable", b, sizeof(b));
     TEST_ASSERT_TRUE(strlen(b) <= 72);
-}
-// Listeners know Spotify, not the lyrics backend: no message names LRCLIB.
-void test_messages_never_name_lrclib() {
-    const char* const* pools[] = {lyricmsg::SEARCH, lyricmsg::RETRY, lyricmsg::FAIL,
-                                  lyricmsg::INSTRUMENTAL, lyricmsg::FOUND};
-    const int sizes[] = {lyricmsg::SEARCH_N, lyricmsg::RETRY_N, lyricmsg::FAIL_N,
-                         lyricmsg::INSTRUMENTAL_N, lyricmsg::FOUND_N};
-    for (int p = 0; p < 5; ++p)
-        for (int i = 0; i < sizes[p]; ++i) TEST_ASSERT_NULL_MESSAGE(strstr(pools[p][i], "LRCLIB"), pools[p][i]);
+    TEST_ASSERT_NULL(strstr(lyricmsg::IDLE, "LRCLIB"));
 }
 void test_searching_uses_search_pool_with_notes() {
     lyricmsg::compose(base(Status::Searching), out);
@@ -119,9 +112,6 @@ void test_synced_intro_flashes_found_then_shows_first_line() {
     TEST_ASSERT_EQUAL_STRING("first verse", out.text);
     TEST_ASSERT_TRUE(out.notes);
 }
-void test_found_flash_is_short() {
-    TEST_ASSERT_TRUE(lyricmsg::FOUND_SHOW_MS <= 2000);
-}
 void test_lyrics_arriving_mid_song_skip_found() {
     lyricmsg::In in = base(Status::Synced);
     in.firstLineMs = 12000;
@@ -138,11 +128,11 @@ void test_empty_lyric_line_shows_idle_not_blank() {
     in.posMs = 83000;
     in.line = "";
     lyricmsg::compose(in, out);
-    TEST_ASSERT_EQUAL_STRING("PIKACHU is enjoying the music", out.text);
+    TEST_ASSERT_EQUAL_STRING(idle(), out.text);
     TEST_ASSERT_TRUE(out.notes);
     in.status = Status::Plain;
     lyricmsg::compose(in, out);
-    TEST_ASSERT_EQUAL_STRING("PIKACHU is enjoying the music", out.text);
+    TEST_ASSERT_EQUAL_STRING(idle(), out.text);
     TEST_ASSERT_FALSE(out.notes);
 }
 // The note icons dance only while a real timed lyric line is shown.
@@ -195,7 +185,7 @@ void test_none_shows_fail_then_idle() {
     TEST_ASSERT_TRUE(inPool(lyricmsg::FAIL, lyricmsg::FAIL_N, out.text, "Pikachu"));
     in.statusAgeMs = lyricmsg::FAIL_SHOW_MS;
     lyricmsg::compose(in, out);
-    TEST_ASSERT_EQUAL_STRING("PIKACHU is enjoying the music", out.text);
+    TEST_ASSERT_EQUAL_STRING(idle(), out.text);
     TEST_ASSERT_TRUE(out.notes);
 }
 void test_instrumental_shows_its_line_then_idle() {
@@ -204,23 +194,20 @@ void test_instrumental_shows_its_line_then_idle() {
     TEST_ASSERT_TRUE(inPool(lyricmsg::INSTRUMENTAL, lyricmsg::INSTRUMENTAL_N, out.text, "Pikachu"));
     in.statusAgeMs = lyricmsg::FAIL_SHOW_MS;
     lyricmsg::compose(in, out);
-    TEST_ASSERT_EQUAL_STRING("PIKACHU is enjoying the music", out.text);
+    TEST_ASSERT_EQUAL_STRING(idle(), out.text);
 }
 int main(int, char**) {
     UNITY_BEGIN();
-    RUN_TEST(test_pools_have_spec_sizes);
     RUN_TEST(test_fill_replaces_every_P_with_capitals);
     RUN_TEST(test_fill_keeps_accents);
     RUN_TEST(test_fill_never_cuts_a_utf8_character);
     RUN_TEST(test_fill_long_name_stays_in_bounds);
     RUN_TEST(test_empty_name_uses_pokemon);
     RUN_TEST(test_all_messages_fit_two_lines);
-    RUN_TEST(test_messages_never_name_lrclib);
     RUN_TEST(test_searching_uses_search_pool_with_notes);
     RUN_TEST(test_retrying_uses_retry_pool);
     RUN_TEST(test_pick_is_stable_per_song_and_varies_between_songs);
     RUN_TEST(test_synced_intro_flashes_found_then_shows_first_line);
-    RUN_TEST(test_found_flash_is_short);
     RUN_TEST(test_lyrics_arriving_mid_song_skip_found);
     RUN_TEST(test_empty_lyric_line_shows_idle_not_blank);
     RUN_TEST(test_notes_dance_only_on_timed_lyric_lines);

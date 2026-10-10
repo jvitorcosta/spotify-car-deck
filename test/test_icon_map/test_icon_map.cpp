@@ -7,22 +7,19 @@ void setUp() {}
 void tearDown() {}
 
 void test_device_types_map_to_icons() {
-    TEST_ASSERT_EQUAL_INT((int)Icon::Phone,   (int)icons::forDevice("Smartphone"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Phone,   (int)icons::forDevice("Tablet"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Laptop,  (int)icons::forDevice("Computer"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Speaker, (int)icons::forDevice("Speaker"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Speaker, (int)icons::forDevice("CastAudio"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Tv,      (int)icons::forDevice("TV"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Tv,      (int)icons::forDevice("GameConsole"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Car,     (int)icons::forDevice("Automobile"));
-}
-void test_device_type_case_insensitive() {
-    TEST_ASSERT_EQUAL_INT((int)Icon::Phone, (int)icons::forDevice("smartphone"));
-}
-void test_unknown_empty_null_device_is_speaker() {
-    TEST_ASSERT_EQUAL_INT((int)Icon::Speaker, (int)icons::forDevice("Unknown"));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Speaker, (int)icons::forDevice(""));
-    TEST_ASSERT_EQUAL_INT((int)Icon::Speaker, (int)icons::forDevice(nullptr));
+    const struct { const char* type; Icon icon; } cases[] = {
+        {"Smartphone", Icon::Phone},   {"Tablet", Icon::Phone},
+        {"Computer", Icon::Laptop},
+        {"Speaker", Icon::Speaker},    {"CastAudio", Icon::Speaker},
+        {"TV", Icon::Tv},              {"GameConsole", Icon::Tv},
+        {"Automobile", Icon::Car},
+        {"smartphone", Icon::Phone},   // case-insensitive
+        {"Unknown", Icon::Speaker},    // unknown, empty and null fall back to the speaker
+        {"", Icon::Speaker},
+        {nullptr, Icon::Speaker},
+    };
+    for (const auto& c : cases)
+        TEST_ASSERT_EQUAL_INT_MESSAGE((int)c.icon, (int)icons::forDevice(c.type), c.type ? c.type : "(null)");
 }
 void test_every_icon_is_12x12() {
     for (int i = 0; i <= (int)Icon::Note; ++i) {
@@ -44,8 +41,6 @@ void test_pixel_reads_art_and_bounds() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_device_types_map_to_icons);
-    RUN_TEST(test_device_type_case_insensitive);
-    RUN_TEST(test_unknown_empty_null_device_is_speaker);
     RUN_TEST(test_every_icon_is_12x12);
     RUN_TEST(test_pixel_reads_art_and_bounds);
     return UNITY_END();

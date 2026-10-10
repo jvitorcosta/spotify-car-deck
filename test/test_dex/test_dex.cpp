@@ -5,10 +5,16 @@
 void setUp() {}
 void tearDown() {}
 
-void test_known_names() {
-    TEST_ASSERT_EQUAL_STRING("Bulbasaur", dex::name(1));
-    TEST_ASSERT_EQUAL_STRING("Pikachu", dex::name(25));
-    TEST_ASSERT_EQUAL_STRING("Pecharunt", dex::name(1025));
+void test_spot_check_names_and_types() {
+    const struct { int n; const char* name; const char* type; } cases[] = {
+        {1, "Bulbasaur", "grass"},
+        {25, "Pikachu", "electric"},
+        {1025, "Pecharunt", "poison"},   // the last entry
+    };
+    for (const auto& c : cases) {
+        TEST_ASSERT_EQUAL_STRING(c.name, dex::name(c.n));
+        TEST_ASSERT_EQUAL_STRING(c.type, dex::type(c.n));
+    }
 }
 void test_names_are_folded_to_ascii() {
     TEST_ASSERT_EQUAL_STRING("Nidoran F", dex::name(29));
@@ -16,11 +22,6 @@ void test_names_are_folded_to_ascii() {
     TEST_ASSERT_EQUAL_STRING("Farfetch'd", dex::name(83));
     TEST_ASSERT_EQUAL_STRING("Mr. Mime", dex::name(122));
     TEST_ASSERT_EQUAL_STRING("Flabebe", dex::name(669));
-}
-void test_primary_types() {
-    TEST_ASSERT_EQUAL_STRING("grass", dex::type(1));
-    TEST_ASSERT_EQUAL_STRING("electric", dex::type(25));
-    TEST_ASSERT_EQUAL_STRING("poison", dex::type(1025));
 }
 void test_out_of_range_is_empty() {
     TEST_ASSERT_EQUAL_STRING("", dex::name(0));
@@ -51,9 +52,8 @@ void test_sprite_url() {
 }
 int main(int, char**) {
     UNITY_BEGIN();
-    RUN_TEST(test_known_names);
+    RUN_TEST(test_spot_check_names_and_types);
     RUN_TEST(test_names_are_folded_to_ascii);
-    RUN_TEST(test_primary_types);
     RUN_TEST(test_out_of_range_is_empty);
     RUN_TEST(test_every_entry_is_printable_ascii_and_fits_state);
     RUN_TEST(test_from_random_covers_range);

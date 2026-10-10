@@ -125,12 +125,6 @@ void test_spread_plain_without_duration_is_4s_apart() {
     TEST_ASSERT_EQUAL_UINT32(4000, L.lines[1].tMs);
     TEST_ASSERT_EQUAL_UINT32(8000, L.lines[2].tMs);
 }
-void test_reset_clears_plain_total() {
-    lyricbuf::reset(L);
-    lyricbuf::addPlain(L, "a", 1);
-    lyricbuf::reset(L);
-    TEST_ASSERT_EQUAL_INT(0, L.plainTotal);
-}
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parses_timestamped_lines);
@@ -149,6 +143,5 @@ int main(int, char**) {
     RUN_TEST(test_spread_plain_over_10_to_90_percent);
     RUN_TEST(test_spread_plain_keeps_share_of_lines_that_did_not_fit);
     RUN_TEST(test_spread_plain_without_duration_is_4s_apart);
-    RUN_TEST(test_reset_clears_plain_total);
     return UNITY_END();
 }

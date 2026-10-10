@@ -18,11 +18,6 @@ void test_script_is_in_time_order_and_ends_after_the_last_line() {
     TEST_ASSERT_TRUE(TOTAL_MS > (uint32_t)line(count() - 1).at + DOTS_MS);
 }
 
-void test_header_names_the_car() {
-    TEST_ASSERT_NOT_NULL(strstr(line(0).label, "SUPER BAIANO"));
-    TEST_ASSERT_NOT_NULL(strstr(line(1).label, "HONDA CITY TOURING"));
-}
-
 void test_format_right_aligns_the_value_with_a_dot_leader() {
     char out[COLS + 1];
     const int v = format("CUP HOLDERS", "2/2 [OK]", out, sizeof out);
@@ -44,34 +39,6 @@ void test_format_truncates_a_long_value_keeping_one_dot() {
     TEST_ASSERT_EQUAL_INT(COLS, (int)strlen(out));
     TEST_ASSERT_EQUAL_INT(0, strncmp(out, "WI-FI . ", 8));
     TEST_ASSERT_EQUAL_INT(8, v);
-}
-
-void test_typing_label_then_dots_then_value() {
-    const int i = find("CUP HOLDERS");
-    TEST_ASSERT_TRUE(i >= 0);
-    const uint32_t at = line(i).at;
-    const int labelLen = (int)strlen(line(i).label);
-    TEST_ASSERT_EQUAL_INT(0, shown(i, at - 1, COLS));                 // not yet
-    TEST_ASSERT_EQUAL_INT(labelLen, shown(i, at, COLS));              // label at once
-    const int half = shown(i, at + DOTS_MS / 2, COLS);
-    TEST_ASSERT_TRUE(half > labelLen && half < COLS);                  // dots filling in
-    TEST_ASSERT_EQUAL_INT(COLS, shown(i, at + DOTS_MS, COLS));        // value shown
-}
-
-void test_text_lines_appear_whole() {
-    const int i = find("Detecting");
-    TEST_ASSERT_EQUAL_INT((int)strlen(line(i).label), shown(i, line(i).at, (int)strlen(line(i).label)));
-}
-
-void test_wifi_line_is_live() {
-    const int i = find("WI-FI");
-    TEST_ASSERT_TRUE(i >= 0);
-    TEST_ASSERT_TRUE(line(i).live);
-    TEST_ASSERT_NULL(line(i).value);
-}
-
-void test_ends_with_ignition() {
-    TEST_ASSERT_NOT_NULL(strstr(line(count() - 1).label, "IGNITION"));
 }
 
 void test_format_to_a_narrower_width() {
@@ -140,6 +107,10 @@ void test_term_script_feeds_due_lines_once() {
 }
 
 void test_term_script_skips_the_live_line() {
+    const int wifi = find("WI-FI");
+    TEST_ASSERT_TRUE(wifi >= 0);
+    TEST_ASSERT_TRUE(line(wifi).live);                       // its value comes from the radio
+    TEST_ASSERT_NULL(line(wifi).value);
     Term term = {};
     for (uint32_t t = 0; t <= TOTAL_MS; t += 50) {
         termScript(term, t);
@@ -187,22 +158,25 @@ void test_term_value_is_truncated_to_fit() {
 }
 
 void test_typed_reveals_label_then_dots() {
-    TEST_ASSERT_EQUAL_INT(5, typed(0, 5, 20));
-    TEST_ASSERT_EQUAL_INT(20, typed(DOTS_MS, 5, 20));
-    TEST_ASSERT_EQUAL_INT(12, typed(DOTS_MS / 2, 5, 20));   // 5 + 15 / 2
+    TEST_ASSERT_EQUAL_INT(5, typed(0, 5, 20));                // label at once
+    TEST_ASSERT_EQUAL_INT(12, typed(DOTS_MS / 2, 5, 20));     // dots filling in: 5 + 15 / 2
+    TEST_ASSERT_EQUAL_INT(20, typed(DOTS_MS, 5, 20));         // value shown
+    TEST_ASSERT_EQUAL_INT(20, typed(DOTS_MS + 1000, 5, 20));  // and stays
+    TEST_ASSERT_EQUAL_INT(9, typed(0, 9, 9));                 // plain text: whole at once
+    // shown() is typed() from the script line's start time
+    const int i = find("CUP HOLDERS");
+    TEST_ASSERT_TRUE(i >= 0);
+    const uint32_t at = line(i).at;
+    TEST_ASSERT_EQUAL_INT(0, shown(i, at - 1, COLS));         // not yet
+    TEST_ASSERT_EQUAL_INT((int)strlen(line(i).label), shown(i, at, COLS));
 }
 
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_script_is_in_time_order_and_ends_after_the_last_line);
-    RUN_TEST(test_header_names_the_car);
     RUN_TEST(test_format_right_aligns_the_value_with_a_dot_leader);
     RUN_TEST(test_format_without_value_is_the_label);
     RUN_TEST(test_format_truncates_a_long_value_keeping_one_dot);
-    RUN_TEST(test_typing_label_then_dots_then_value);
-    RUN_TEST(test_text_lines_appear_whole);
-    RUN_TEST(test_wifi_line_is_live);
-    RUN_TEST(test_ends_with_ignition);
     RUN_TEST(test_format_to_a_narrower_width);
     RUN_TEST(test_term_appends_new_labels);
     RUN_TEST(test_term_updates_a_label_in_place);

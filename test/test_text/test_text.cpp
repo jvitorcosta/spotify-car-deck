@@ -5,25 +5,21 @@
 void setUp() {}
 void tearDown() {}
 
-void test_ascii_passthrough() {
-    char o[32];
-    txt::asciiFold("Hello World", o, sizeof(o));
-    TEST_ASSERT_EQUAL_STRING("Hello World", o);
-}
-void test_portuguese_lower() {
-    char o[32];
-    txt::asciiFold("Cora\xC3\xA7\xC3\xA3o", o, sizeof(o));   // "Coração"
-    TEST_ASSERT_EQUAL_STRING("Coracao", o);
-}
-void test_portuguese_mixed() {
-    char o[32];
-    txt::asciiFold("N\xC3\xA3o \xC3\xA9", o, sizeof(o));      // "Não é"
-    TEST_ASSERT_EQUAL_STRING("Nao e", o);
-}
-void test_uppercase_accent() {
-    char o[32];
-    txt::asciiFold("\xC3\x89""POCA", o, sizeof(o));           // "ÉPOCA"
-    TEST_ASSERT_EQUAL_STRING("EPOCA", o);
+// asciiFold, and foldMarks without a marks array, give the same ASCII.
+void test_ascii_fold() {
+    const struct { const char* in; const char* out; } cases[] = {
+        {"Hello World", "Hello World"},                   // ASCII passes through
+        {"Cora\xC3\xA7\xC3\xA3o", "Coracao"},             // "Coração"
+        {"N\xC3\xA3o \xC3\xA9", "Nao e"},                 // "Não é"
+        {"\xC3\x89" "POCA", "EPOCA"},                     // "ÉPOCA"
+    };
+    for (const auto& c : cases) {
+        char a[32], b[32];
+        txt::asciiFold(c.in, a, sizeof(a));
+        TEST_ASSERT_EQUAL_STRING(c.out, a);
+        txt::foldMarks(c.in, b, nullptr, sizeof(b));
+        TEST_ASSERT_EQUAL_STRING(c.out, b);
+    }
 }
 void test_fold_marks_portuguese() {
     char o[32];
@@ -63,12 +59,6 @@ void test_fold_marks_stops_at_a_cut_character() {
     TEST_ASSERT_EQUAL_STRING("ab", out);
     txt::foldMarks(cut4, out, nullptr, sizeof out);
     TEST_ASSERT_EQUAL_STRING("ab", out);
-}
-void test_fold_marks_null_marks_matches_ascii_fold() {
-    char a[32], b[32];
-    txt::asciiFold("N\xC3\xA3o \xC3\xA9", a, sizeof(a));
-    txt::foldMarks("N\xC3\xA3o \xC3\xA9", b, nullptr, sizeof(b));
-    TEST_ASSERT_EQUAL_STRING(a, b);
 }
 void test_copy_id_short_is_copied_verbatim() {
     char o[64];
@@ -154,14 +144,10 @@ int main(int, char**) {
     RUN_TEST(test_copy_id_short_is_copied_verbatim);
     RUN_TEST(test_copy_id_long_ids_stay_distinct);
     RUN_TEST(test_copy_id_null_is_empty);
-    RUN_TEST(test_ascii_passthrough);
-    RUN_TEST(test_portuguese_lower);
-    RUN_TEST(test_portuguese_mixed);
-    RUN_TEST(test_uppercase_accent);
+    RUN_TEST(test_ascii_fold);
     RUN_TEST(test_fold_marks_portuguese);
     RUN_TEST(test_fold_marks_upper_and_others);
     RUN_TEST(test_fold_marks_two_letter_folds_have_no_mark);
     RUN_TEST(test_fold_marks_stops_at_a_cut_character);
-    RUN_TEST(test_fold_marks_null_marks_matches_ascii_fold);
     return UNITY_END();
 }

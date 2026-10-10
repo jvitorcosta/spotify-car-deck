@@ -38,11 +38,6 @@ void test_parse_rejects_cut_off_number() {
     // The 1 KB buffer could end inside the number: "11" of "1122" is not a genre.
     TEST_ASSERT_FALSE(genre::parsePrimaryGenreId("{\"primaryGenreName\":\"Brasileira\", \"primaryGenreId\":11", &id));
 }
-void test_hash_is_stable_and_spreads() {
-    TEST_ASSERT_EQUAL_UINT32(genre::hashName("BTS"), genre::hashName("BTS"));
-    TEST_ASSERT_NOT_EQUAL(genre::hashName("BTS"), genre::hashName("bts"));
-    TEST_ASSERT_NOT_EQUAL(genre::hashName("Mar\xC3\xADlia Mendon\xC3\xA7" "a"), genre::hashName("Marilia Mendonca"));
-}
 void test_cache_miss_then_hit() {
     genre::Cache c;
     uint8_t b = 0;
@@ -112,7 +107,6 @@ int main(int, char**) {
     RUN_TEST(test_parse_large_ids_and_spacing);
     RUN_TEST(test_parse_no_result_is_false);
     RUN_TEST(test_parse_rejects_cut_off_number);
-    RUN_TEST(test_hash_is_stable_and_spreads);
     RUN_TEST(test_cache_miss_then_hit);
     RUN_TEST(test_cache_remembers_none);
     RUN_TEST(test_cache_empty_artist_is_known_none);

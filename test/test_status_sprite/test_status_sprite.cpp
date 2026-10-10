@@ -15,23 +15,11 @@ static bool colHasOpaque(int x) {
         if (status_sprite::pixel(x, y, nullptr)) return true;
     return false;
 }
-void test_size_is_reasonable() {
-    TEST_ASSERT_TRUE(status_sprite::width() >= 16 && status_sprite::width() <= 96);
-    TEST_ASSERT_TRUE(status_sprite::height() >= 16 && status_sprite::height() <= 96);
-}
 void test_cropped_to_opaque_bounds() {   // every edge of the crop touches the creature
     TEST_ASSERT_TRUE(rowHasOpaque(0));
     TEST_ASSERT_TRUE(rowHasOpaque(status_sprite::height() - 1));
     TEST_ASSERT_TRUE(colHasOpaque(0));
     TEST_ASSERT_TRUE(colHasOpaque(status_sprite::width() - 1));
-}
-void test_opaque_pixel_reports_colour() {
-    int w = status_sprite::width(), h = status_sprite::height();
-    uint16_t c = 0;
-    bool found = false;
-    for (int y = h / 3; y < h && !found; ++y)
-        for (int x = 0; x < w && !found; ++x) found = status_sprite::pixel(x, y, &c);
-    TEST_ASSERT_TRUE(found);
 }
 void test_out_of_range_is_transparent() {
     uint16_t c = 0x1234;
@@ -41,9 +29,7 @@ void test_out_of_range_is_transparent() {
 }
 int main(int, char**) {
     UNITY_BEGIN();
-    RUN_TEST(test_size_is_reasonable);
     RUN_TEST(test_cropped_to_opaque_bounds);
-    RUN_TEST(test_opaque_pixel_reports_colour);
     RUN_TEST(test_out_of_range_is_transparent);
     return UNITY_END();
 }

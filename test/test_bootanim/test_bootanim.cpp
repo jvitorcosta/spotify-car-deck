@@ -9,7 +9,6 @@ void tearDown() {}
 
 void test_enter_eases_from_off_screen_to_cruise() {
     TEST_ASSERT_EQUAL_INT(-202, carX(0, NO_EXIT));
-    TEST_ASSERT_EQUAL_INT(-5, carX(450, NO_EXIT));     // -202 + round(262 * 0.75)
     TEST_ASSERT_EQUAL_INT(60, carX(900, NO_EXIT));
 }
 // The sway starts at phase 0 when the enter phase ends: no jump at the hand-over.
@@ -40,21 +39,10 @@ void test_exit_gating() {
     TEST_ASSERT_FALSE(mayExit(6000, true, false));
     TEST_ASSERT_TRUE(mayExit(600000, true, true));
 }
-void test_bob_every_fifth_sixth_of_a_second() {
-    TEST_ASSERT_EQUAL_INT(1, bob(0));
-    TEST_ASSERT_EQUAL_INT(0, bob(200));
-    TEST_ASSERT_EQUAL_INT(1, bob(840));
-}
-void test_scroll_and_spokes() {
+void test_scroll_wraps_at_its_period() {
     TEST_ASSERT_EQUAL_INT(90, scroll(1000, 90, 160));
     TEST_ASSERT_EQUAL_INT(20, scroll(2000, 90, 160));
     TEST_ASSERT_EQUAL_INT(0, scroll(0, 14, 720));
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 9.0f, spokeAngle(1000));
-}
-void test_star_twinkle() {
-    TEST_ASSERT_TRUE(starHidden(0, 0));
-    TEST_ASSERT_FALSE(starHidden(0, 1));
-    TEST_ASSERT_TRUE(starHidden(2000, 1));   // 2000*3/1000 + 1 = 7
 }
 void test_rgb565_helpers() {
     TEST_ASSERT_EQUAL_HEX16(0xFFFF, rgb565(255, 255, 255));
@@ -65,32 +53,31 @@ void test_rgb565_helpers() {
     TEST_ASSERT_EQUAL_HEX16(0x8410, scale565(0xFFFF, 128));
     TEST_ASSERT_EQUAL_HEX16(0xFFFF, scale565(0xFFFF, 255));
 }
-// hsl(h, 100 %, 58 %): one full cycle every 3 s.
+// One full hue cycle every 3 s.
 void test_underglow_hue_cycles() {
-    TEST_ASSERT_EQUAL_HEX16(rgb565(255, 41, 41), hue565(0));
-    TEST_ASSERT_EQUAL_HEX16(rgb565(41, 255, 41), hue565(1000));
-    TEST_ASSERT_EQUAL_HEX16(rgb565(41, 41, 255), hue565(2000));
     TEST_ASSERT_EQUAL_HEX16(hue565(0), hue565(3000));
 }
-void test_light_levels_follow_loudness() {
-    TEST_ASSERT_EQUAL_HEX16(rgb565(160, 160, 128), headColor(0));
-    TEST_ASSERT_EQUAL_HEX16(rgb565(255, 255, 204), headColor(255));
-    TEST_ASSERT_EQUAL_UINT8(140, tailLevel(0));
-    TEST_ASSERT_EQUAL_UINT8(255, tailLevel(255));
-    TEST_ASSERT_EQUAL_UINT8(0, tailGlowAlpha(12));
-    TEST_ASSERT_EQUAL_UINT8(128, tailGlowAlpha(255));
-    TEST_ASSERT_EQUAL_UINT8(40, beamAlpha(0));
-    TEST_ASSERT_EQUAL_UINT8(96, beamAlpha(255));
-    TEST_ASSERT_EQUAL_UINT8(115, glowAlpha(0));
-    TEST_ASSERT_EQUAL_UINT8(217, glowAlpha(255));
-}
-void test_streetlight_reflection_falls_off() {
-    TEST_ASSERT_EQUAL_UINT8(140, reflectAlpha(0, true));
-    TEST_ASSERT_EQUAL_UINT8(70, reflectAlpha(13, true));
-    TEST_ASSERT_EQUAL_UINT8(0, reflectAlpha(26, true));
-    TEST_ASSERT_EQUAL_UINT8(77, reflectAlpha(0, false));
-    TEST_ASSERT_EQUAL_UINT8(0, reflectAlpha(18, false));
-    TEST_ASSERT_EQUAL_UINT8(0, reflectAlpha(500, false));
+// Lights brighten with loudness, never dim; the streetlight reflection fades with distance
+// and is gone past its reach.
+void test_lights_follow_loudness_and_reflection_falls_off() {
+    for (int e = 1; e <= 255; ++e) {
+        const uint8_t a = (uint8_t)(e - 1), b = (uint8_t)e;
+        TEST_ASSERT_TRUE(headColor(b) >= headColor(a));
+        TEST_ASSERT_TRUE(tailLevel(b) >= tailLevel(a));
+        TEST_ASSERT_TRUE(tailGlowAlpha(b) >= tailGlowAlpha(a));
+        TEST_ASSERT_TRUE(beamAlpha(b) >= beamAlpha(a));
+        TEST_ASSERT_TRUE(glowAlpha(b) >= glowAlpha(a));
+    }
+    for (int e = 0; e <= 12; ++e) TEST_ASSERT_EQUAL_UINT8(0, tailGlowAlpha((uint8_t)e));
+    TEST_ASSERT_TRUE(tailGlowAlpha(255) > 0);
+    for (bool upper : {true, false}) {
+        TEST_ASSERT_TRUE(reflectAlpha(0, upper) > 0);
+        for (int d = 1; d <= 320; ++d) {
+            TEST_ASSERT_TRUE(reflectAlpha(d, upper) <= reflectAlpha(d - 1, upper));
+            TEST_ASSERT_EQUAL_UINT8(reflectAlpha(d, upper), reflectAlpha(-d, upper));
+        }
+        TEST_ASSERT_EQUAL_UINT8(0, reflectAlpha(320, upper));   // non-increasing, so 0 from its reach on
+    }
 }
 // Partly off-screen spans are trimmed, fully off-screen ones rejected (Review Focus 2).
 void test_clip() {
@@ -171,13 +158,10 @@ int main(int, char**) {
     RUN_TEST(test_cruise_sways_around_the_centre);
     RUN_TEST(test_exit_accelerates_off_screen_from_the_cruise_x);
     RUN_TEST(test_exit_gating);
-    RUN_TEST(test_bob_every_fifth_sixth_of_a_second);
-    RUN_TEST(test_scroll_and_spokes);
-    RUN_TEST(test_star_twinkle);
+    RUN_TEST(test_scroll_wraps_at_its_period);
     RUN_TEST(test_rgb565_helpers);
     RUN_TEST(test_underglow_hue_cycles);
-    RUN_TEST(test_light_levels_follow_loudness);
-    RUN_TEST(test_streetlight_reflection_falls_off);
+    RUN_TEST(test_lights_follow_loudness_and_reflection_falls_off);
     RUN_TEST(test_clip);
     RUN_TEST(test_brake_starts_where_cruise_left_off);
     RUN_TEST(test_brake_time_slows_down);

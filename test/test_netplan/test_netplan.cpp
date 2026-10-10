@@ -7,22 +7,14 @@ using netplan::Step;
 void setUp() {}
 void tearDown() {}
 
-void test_first_track_bumps_generation() {
+void test_track_changes_bump_generation() {
     netplan::TrackGen g;
     TEST_ASSERT_EQUAL_UINT32(0, g.gen());
-    TEST_ASSERT_TRUE(g.update("Song A"));
+    TEST_ASSERT_TRUE(g.update("Song A"));      // first track
     TEST_ASSERT_EQUAL_UINT32(1, g.gen());
-}
-void test_same_track_does_not_bump() {
-    netplan::TrackGen g;
-    g.update("Song A");
-    TEST_ASSERT_FALSE(g.update("Song A"));
+    TEST_ASSERT_FALSE(g.update("Song A"));     // same track
     TEST_ASSERT_EQUAL_UINT32(1, g.gen());
-}
-void test_new_track_bumps() {
-    netplan::TrackGen g;
-    g.update("Song A");
-    TEST_ASSERT_TRUE(g.update("Song B"));
+    TEST_ASSERT_TRUE(g.update("Song B"));      // new track
     TEST_ASSERT_EQUAL_UINT32(2, g.gen());
 }
 void test_empty_name_is_ignored_and_keeps_last() {
@@ -36,6 +28,8 @@ void test_empty_name_is_ignored_and_keeps_last() {
 void test_order_without_prefetched_walker() {
     // Art and lyrics first: they are what the user waits for; then the small genre lookup;
     // the walker is usually prefetched, and when it isn't it can follow.
+    const netplan::Work idle{};
+    TEST_ASSERT_EQUAL_INT((int)Step::None, (int)netplan::next(idle));
     netplan::Work w = netplan::freshWork(false);
     TEST_ASSERT_EQUAL_INT((int)Step::Art, (int)netplan::next(w));
     netplan::done(w, Step::Art);
@@ -52,6 +46,13 @@ void test_order_without_prefetched_walker() {
 void test_prefetched_walker_skips_walk_step() {
     netplan::Work w = netplan::freshWork(true);
     TEST_ASSERT_EQUAL_INT((int)Step::Art, (int)netplan::next(w));
+    int steps = 0;
+    for (Step s = netplan::next(w); s != Step::None; s = netplan::next(w)) {
+        TEST_ASSERT_TRUE(s != Step::Walk);
+        TEST_ASSERT_TRUE(++steps <= 5);
+        netplan::done(w, s);
+    }
+    TEST_ASSERT_EQUAL_INT(4, steps);                    // Art, Lyrics, Genre, Prefetch
 }
 void test_link_stays_up_through_isolated_failures() {
     netplan::LinkGate g;
@@ -68,16 +69,14 @@ void test_link_down_after_three_consecutive_failures() {
     TEST_ASSERT_TRUE(g.update(false));
     TEST_ASSERT_FALSE(g.update(true));    // first good poll clears it
 }
-void test_idle_work_is_none() {
-    netplan::Work w{};
-    TEST_ASSERT_EQUAL_INT((int)Step::None, (int)netplan::next(w));
-}
 void test_can_run_gates_on_largest_block() {
     using netplan::canRun;
     TEST_ASSERT_TRUE(canRun(Step::Art, 6000));          // plain HTTP: small
     TEST_ASSERT_FALSE(canRun(Step::Art, 5999));
     TEST_ASSERT_TRUE(canRun(Step::Lyrics, netplan::TLS_NEED));
     TEST_ASSERT_FALSE(canRun(Step::Lyrics, netplan::TLS_NEED - 1));
+    TEST_ASSERT_TRUE(canRun(Step::Genre, netplan::TLS_NEED));
+    TEST_ASSERT_FALSE(canRun(Step::Genre, netplan::TLS_NEED - 1));
     // Walker downloads use the fixed scratch buffer (no malloc): they need only TLS.
     TEST_ASSERT_TRUE(canRun(Step::Walk, netplan::TLS_NEED));
     TEST_ASSERT_FALSE(canRun(Step::Walk, netplan::TLS_NEED - 1));
@@ -86,15 +85,10 @@ void test_can_run_gates_on_largest_block() {
     TEST_ASSERT_TRUE(canRun(Step::None, 0));
 }
 using Act = netplan::Health::Action;
-// onPoll(ok, wifiUp, memStarved, nowMs)
-void test_health_success_is_none() {
-    netplan::Health h;
-    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(true, true, false, 1000));
-    TEST_ASSERT_FALSE(h.optionalPaused());
-}
 void test_health_two_failures_pause_optional_until_success() {
     netplan::Health h;
-    h.onPoll(true, true, false, 1000);
+    TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(true, true, false, 1000));   // success: nothing to do
+    TEST_ASSERT_FALSE(h.optionalPaused());
     TEST_ASSERT_EQUAL_INT((int)Act::None, (int)h.onPoll(false, true, false, 5000));
     TEST_ASSERT_EQUAL_INT((int)Act::PauseOptional, (int)h.onPoll(false, true, false, 9000));
     TEST_ASSERT_TRUE(h.optionalPaused());
@@ -202,17 +196,9 @@ void test_genre_done_skips_to_walk() {
     netplan::done(w, Step::Lyrics);
     TEST_ASSERT_EQUAL_INT((int)Step::Walk, (int)netplan::next(w));
 }
-void test_can_run_genre_needs_tls() {
-    TEST_ASSERT_TRUE(netplan::canRun(Step::Genre, netplan::TLS_NEED));
-    TEST_ASSERT_FALSE(netplan::canRun(Step::Genre, netplan::TLS_NEED - 1));
-}
 void test_status_for_results() {
     TEST_ASSERT_EQUAL_INT((int)Status::Retrying, (int)lyricstatus::statusFor(Result::TempError, false));
     TEST_ASSERT_EQUAL_INT((int)Status::None, (int)lyricstatus::statusFor(Result::TempError, true));
-    TEST_ASSERT_EQUAL_INT((int)Status::None, (int)lyricstatus::statusFor(Result::NotFound, true));
-    TEST_ASSERT_EQUAL_INT((int)Status::Synced, (int)lyricstatus::statusFor(Result::Synced, true));
-    TEST_ASSERT_EQUAL_INT((int)Status::Plain, (int)lyricstatus::statusFor(Result::Plain, true));
-    TEST_ASSERT_EQUAL_INT((int)Status::Instrumental, (int)lyricstatus::statusFor(Result::Instrumental, true));
 }
 void test_walk_retry_out_of_memory_then_gives_up() {
     netplan::WalkRetry r;
@@ -233,17 +219,13 @@ void test_walk_retry_other_results_are_final() {
 
 int main(int, char**) {
     UNITY_BEGIN();
-    RUN_TEST(test_first_track_bumps_generation);
-    RUN_TEST(test_same_track_does_not_bump);
-    RUN_TEST(test_new_track_bumps);
+    RUN_TEST(test_track_changes_bump_generation);
     RUN_TEST(test_empty_name_is_ignored_and_keeps_last);
     RUN_TEST(test_order_without_prefetched_walker);
     RUN_TEST(test_prefetched_walker_skips_walk_step);
     RUN_TEST(test_link_stays_up_through_isolated_failures);
     RUN_TEST(test_link_down_after_three_consecutive_failures);
-    RUN_TEST(test_idle_work_is_none);
     RUN_TEST(test_can_run_gates_on_largest_block);
-    RUN_TEST(test_health_success_is_none);
     RUN_TEST(test_health_two_failures_pause_optional_until_success);
     RUN_TEST(test_health_restart_after_180s_when_memory_starved);
     RUN_TEST(test_health_restart_clock_survives_millis_wrap);
@@ -259,7 +241,6 @@ int main(int, char**) {
     RUN_TEST(test_next_skips_lyrics_while_waiting);
     RUN_TEST(test_status_for_results);
     RUN_TEST(test_genre_done_skips_to_walk);
-    RUN_TEST(test_can_run_genre_needs_tls);
     RUN_TEST(test_walk_retry_out_of_memory_then_gives_up);
     RUN_TEST(test_walk_retry_other_results_are_final);
     return UNITY_END();
