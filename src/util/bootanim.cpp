@@ -120,7 +120,9 @@ int finaleStartFrame(int count, int fps, uint32_t finaleMs) {
 bool openerFits(int finaleAt, int fps, uint32_t openerMs) {
     if (openerMs == 0 || fps <= 0) return false;
     if (finaleAt < 0) return true;
-    const int frames = (int)(((uint64_t)openerMs * (uint64_t)fps + 999) / 1000);   // rounded up
+    // The opener starts up to one brake frame late and its DMA still drains after the last write.
+    const uint64_t ms = (uint64_t)openerMs + OPENER_MARGIN_MS;
+    const int frames = (int)((ms * (uint64_t)fps + 999) / 1000);   // rounded up
     return frames <= finaleAt;
 }
 }

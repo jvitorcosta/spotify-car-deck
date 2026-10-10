@@ -156,7 +156,9 @@ void test_finale_start_frame() {
 
 void test_opener_fits() {
     TEST_ASSERT_TRUE(openerFits(61, 10, 900));      // 0.9 s opener, finale from frame 61
-    TEST_ASSERT_TRUE(openerFits(9, 10, 900));       // ends exactly where the finale starts
+    TEST_ASSERT_FALSE(openerFits(9, 10, 900));      // ends exactly where the finale starts: no margin
+    TEST_ASSERT_FALSE(openerFits(11, 10, 900));     // 0.9 s + 0.3 s margin needs 12 frames
+    TEST_ASSERT_TRUE(openerFits(12, 10, 900));
     TEST_ASSERT_FALSE(openerFits(8, 10, 900));      // would overlap: one speaker, one clip
     TEST_ASSERT_FALSE(openerFits(0, 10, 900));      // finale from the first frame
     TEST_ASSERT_TRUE(openerFits(-1, 10, 900));      // no finale

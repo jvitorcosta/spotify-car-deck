@@ -29,12 +29,18 @@ static const Clip OPENER = {_binary_data_opener_pcm_start,
                             "opener", &audiosink::GREETING_VOLUME};
 
 static volatile int s_playing = 0;   // clips playing (task alive, audio output open)
+// One clip at a time on the audio output (audiosink's contract): a clip that starts while another
+// still plays waits here instead of colliding with it. Created by the first play*() call (setup()).
+static SemaphoreHandle_t s_output = nullptr;
+
 
 static void task(void* arg) {
     const Clip* c = (const Clip*)arg;
     const int volume = *c->volume;
+    xSemaphoreTake(s_output, portMAX_DELAY);
     const uint32_t t0 = millis();
     if (!audiosink::open(CLIP_RATE)) {
+        xSemaphoreGive(s_output);
         s_playing = s_playing - 1;
         vTaskDelete(nullptr);
     }
@@ -49,6 +55,7 @@ static void task(void* arg) {
         audiosink::write(buf, n);
     }
     audiosink::close();
+    xSemaphoreGive(s_output);
     Serial.printf("[greeting] %s: played %u samples in ~%u ms (clip %u ms)\n", c->name,
                   (unsigned)c->samples, (unsigned)(millis() - t0),
                   (unsigned)(c->samples * 1000 / CLIP_RATE));
@@ -56,21 +63,22 @@ static void task(void* arg) {
     vTaskDelete(nullptr);
 }
 
-void play() {
+static void start(const Clip* c, const char* name) {
+    if (!s_output) s_output = xSemaphoreCreateMutex();
     s_playing = s_playing + 1;
-    xTaskCreate(task, "greeting", 3072, (void*)&GREETING, 1, nullptr);
+    xTaskCreate(task, name, 3072, (void*)c, 1, nullptr);
 }
+
+void play() { start(&GREETING, "greeting"); }
 
 void playFinale() {
     if (FINALE.samples <= 1) return;                 // 1 sample = the build's placeholder
-    s_playing = s_playing + 1;
-    xTaskCreate(task, "finale", 3072, (void*)&FINALE, 1, nullptr);
+    start(&FINALE, "finale");
 }
 
 void playOpener() {
     if (OPENER.samples <= 1) return;                 // 1 sample = the build's placeholder
-    s_playing = s_playing + 1;
-    xTaskCreate(task, "opener", 3072, (void*)&OPENER, 1, nullptr);
+    start(&OPENER, "opener");
 }
 
 uint32_t openerMs() { return OPENER.samples > 1 ? (uint32_t)((uint64_t)OPENER.samples * 1000 / CLIP_RATE) : 0; }

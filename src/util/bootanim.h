@@ -54,4 +54,5 @@ int finaleStartFrame(int count, int fps, uint32_t finaleMs);
 // Whether the opener sound (played on the first montage frame) ends before the finale starts at
 // montage frame finaleAt (-1 = no finale); false when there's no opener clip.
 bool openerFits(int finaleAt, int fps, uint32_t openerMs);
+constexpr uint32_t OPENER_MARGIN_MS = 300;   // ~brake frame (110 ms) + DMA drain (~50 ms) + slack
 }

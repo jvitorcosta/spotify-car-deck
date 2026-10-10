@@ -45,13 +45,9 @@ bool open(int clipRate) {
     // The DAC runs at twice the clip rate. In built-in DAC mode ESP-IDF 4.4 sets the 8-bit clock
     // divider to 160 MHz / (rate * 32), which wraps below ~19.6 kHz: 16 kHz played ~5.5x too fast
     // (measured 87.8 kHz) while i2s_get_clk still reported 16000. 32 kHz divides cleanly (156).
-    s_outRate = clipRate * 2;
-    s_ramp = clipRate / 50;              // 20 ms ramp from/to 0 so the amp doesn't pop
-    s_enc = dacstream::Encoder();
-    s_n = 0;
     i2s_config_t cfg = {};
     cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN);
-    cfg.sample_rate = s_outRate;
+    cfg.sample_rate = clipRate * 2;
     cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;   // the DAC takes the high byte
     cfg.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
     cfg.communication_format = I2S_COMM_FORMAT_STAND_MSB;
@@ -63,6 +59,11 @@ bool open(int clipRate) {
         return false;
     }
     i2s_set_dac_mode(I2S_DAC_CHANNEL_LEFT_EN);         // GPIO 26 only (GPIO 25 is touch SCLK)
+    // The port is ours only now: reset the stream state after the install, never before.
+    s_outRate = clipRate * 2;
+    s_ramp = clipRate / 50;              // 20 ms ramp from/to 0 so the amp doesn't pop
+    s_enc = dacstream::Encoder();
+    s_n = 0;
     for (int i = 0; i < s_ramp; ++i) emit(dacstream::rampUp(i, s_ramp));
     return true;
 }
