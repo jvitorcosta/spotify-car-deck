@@ -52,6 +52,13 @@ void test_merged_durations() {
     TEST_ASSERT_EQUAL_UINT16(400, ms[1]);   // (12+12)
     TEST_ASSERT_EQUAL_UINT16(500, ms[2]);   // 30
 }
+// Long frames (from the XML) saturate at the uint16 limit instead of wrapping to a short one.
+void test_merged_durations_saturate() {
+    const uint16_t ticks[2] = {60000, 60000};
+    uint16_t ms[1];
+    mergedDurationsMs(ticks, 2, 2, ms);
+    TEST_ASSERT_EQUAL_UINT16(65535, ms[0]);
+}
 void test_frame_at_cycles() {
     const uint16_t d[3] = {100, 200, 100};
     TEST_ASSERT_EQUAL_INT(0, frameAt(0, d, 3));
@@ -93,6 +100,7 @@ int main(int, char**) {
     RUN_TEST(test_keep_every_fits_cap);
     RUN_TEST(test_kept_count_rounds_up);
     RUN_TEST(test_merged_durations);
+    RUN_TEST(test_merged_durations_saturate);
     RUN_TEST(test_frame_at_cycles);
     RUN_TEST(test_frame_at_degenerate);
     RUN_TEST(test_png_fits_rgba_up_to_316px);

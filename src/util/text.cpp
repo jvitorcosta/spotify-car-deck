@@ -136,10 +136,12 @@ size_t foldMarks(const char* src, char* dst, Mark* marks, size_t n) {
             i += 2;
         } else if (c == 0xC2 && src[i + 1]) {   // U+0080..00BF symbols -> drop
             i += 2;
-        } else if ((c & 0xE0) == 0xC0) { i += 2; }   // skip other 2-byte
-        else if ((c & 0xF0) == 0xE0) { i += 3; }     // skip 3-byte
-        else if ((c & 0xF8) == 0xF0) { i += 4; }     // skip 4-byte
-        else { ++i; }
+        } else {
+            // Skip any other character: the lead byte, then only real continuation bytes, so text
+            // cut mid-character at a buffer edge stops at its NUL instead of reading past it.
+            ++i;
+            while ((((unsigned char)src[i]) & 0xC0) == 0x80) ++i;
+        }
     }
     dst[o] = '\0';
     return o;

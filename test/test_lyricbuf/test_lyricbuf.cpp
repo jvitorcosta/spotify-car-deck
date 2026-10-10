@@ -41,6 +41,15 @@ void test_sorts_by_time() {
     TEST_ASSERT_EQUAL_STRING("b", lyricbuf::lineText(L, 1));
     TEST_ASSERT_EQUAL_STRING("c", lyricbuf::lineText(L, 2));
 }
+// The line table is fixed (MAX_LINES): extra lines are refused, never written past it.
+void test_line_limit_refuses_extra_lines() {
+    lyricbuf::reset(L);
+    const char line[] = "[00:01.00]x";
+    for (int i = 0; i < lyricbuf::MAX_LINES; ++i)
+        TEST_ASSERT_TRUE(lyricbuf::addLine(L, line, sizeof line - 1));
+    TEST_ASSERT_FALSE(lyricbuf::addLine(L, line, sizeof line - 1));
+    TEST_ASSERT_EQUAL_INT(lyricbuf::MAX_LINES, L.n);
+}
 void test_current_index() {
     lyricbuf::parse("[00:01.00]a\n[00:03.00]b\n[00:05.00]c\n", L);
     TEST_ASSERT_EQUAL_INT(-1, lyricbuf::currentIndex(L, 500));
@@ -132,6 +141,7 @@ int main(int, char**) {
     RUN_TEST(test_sorts_by_time);
     RUN_TEST(test_current_index);
     RUN_TEST(test_text_overflow_drops_the_rest);
+    RUN_TEST(test_line_limit_refuses_extra_lines);
     RUN_TEST(test_null_and_out_of_range);
     RUN_TEST(test_has_tag);
     RUN_TEST(test_plain_lines_keep_order_and_skip_blanks);

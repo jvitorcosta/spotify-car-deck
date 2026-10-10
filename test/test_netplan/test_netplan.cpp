@@ -107,6 +107,14 @@ void test_health_restart_after_180s_when_memory_starved() {
     TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, true, 1000 + 179000));
     TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, true, 1000 + 180000));
 }
+// The restart clock spans millis() wrapping (every ~49.7 days of uptime).
+void test_health_restart_clock_survives_millis_wrap() {
+    netplan::Health h;
+    const uint32_t ok = 0xFFFFF000u;                     // last good poll just before the wrap
+    h.onPoll(true, true, false, ok);
+    TEST_ASSERT_NOT_EQUAL((int)Act::Restart, (int)h.onPoll(false, true, true, ok + 179000u));
+    TEST_ASSERT_EQUAL_INT((int)Act::Restart, (int)h.onPoll(false, true, true, ok + 180000u));
+}
 void test_health_dead_zone_without_memory_evidence_never_restarts() {
     // hotspot up, no mobile data (or 401/429): a restart can't fix it -> no reboot loop
     netplan::Health h;
@@ -238,6 +246,7 @@ int main(int, char**) {
     RUN_TEST(test_health_success_is_none);
     RUN_TEST(test_health_two_failures_pause_optional_until_success);
     RUN_TEST(test_health_restart_after_180s_when_memory_starved);
+    RUN_TEST(test_health_restart_clock_survives_millis_wrap);
     RUN_TEST(test_health_dead_zone_without_memory_evidence_never_restarts);
     RUN_TEST(test_health_wifi_down_backstop_after_15_min);
     RUN_TEST(test_health_wifi_back_resets_backstop_and_memory_clock);

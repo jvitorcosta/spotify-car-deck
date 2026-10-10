@@ -40,7 +40,8 @@ void mergedDurationsMs(const uint16_t* ticks, int n, int k, uint16_t* outMs) {
     for (int i = 0; i * k < n; ++i) {
         uint32_t t = 0;
         for (int j = i * k; j < i * k + k && j < n; ++j) t += ticks[j];
-        outMs[i] = (uint16_t)(t * 1000 / 60);
+        const uint32_t ms = t * 1000 / 60;   // t <= k * 65535 ticks: no uint32 overflow
+        outMs[i] = (uint16_t)(ms > 65535 ? 65535 : ms);
     }
 }
 

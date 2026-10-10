@@ -61,7 +61,8 @@ WalkAnim parseWalk(const char* xml) {
     for (const char* p = strstr(b, "<Duration>"); p && p < e && w.frames < MAX_FRAMES;
          p = strstr(p, "<Duration>")) {
         p += 10;
-        w.ticks[w.frames++] = (uint16_t)atoi(p);
+        const long t = strtol(p, nullptr, 10);   // atoi overflows (UB) on absurd numbers
+        w.ticks[w.frames++] = (uint16_t)(t < 0 ? 0 : t > 65535 ? 65535 : t);
     }
     // From GitHub's XML: absurd sizes would overflow the decoder's row maths (walksprite).
     w.ok = w.frameW > 0 && w.frameW <= MAX_FRAME_PX && w.frameH > 0 && w.frameH <= MAX_FRAME_PX &&

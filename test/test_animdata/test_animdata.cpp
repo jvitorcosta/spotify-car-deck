@@ -37,6 +37,16 @@ void test_huge_frame_size_is_not_ok() {
         "<Durations><Duration>8</Duration></Durations></Anim></Anims>";
     TEST_ASSERT_FALSE(animdata::parseWalk(wide).ok);
 }
+// An absurd <Duration> clamps to the uint16 tick range instead of overflowing atoi (UB).
+void test_huge_duration_is_clamped() {
+    const char* xml =
+        "<Anims><Anim><Name>Walk</Name><FrameWidth>32</FrameWidth><FrameHeight>40</FrameHeight>"
+        "<Durations><Duration>99999999999</Duration><Duration>-5</Duration></Durations></Anim></Anims>";
+    animdata::WalkAnim w = animdata::parseWalk(xml);
+    TEST_ASSERT_TRUE(w.ok);
+    TEST_ASSERT_EQUAL_UINT16(65535, w.ticks[0]);
+    TEST_ASSERT_EQUAL_UINT16(0, w.ticks[1]);
+}
 void test_follows_copy_of() {
     const char* xml =
         "<Anims><Anim><Name>Idle</Name><FrameWidth>24</FrameWidth><FrameHeight>32</FrameHeight>"
@@ -81,6 +91,7 @@ void test_more_durations_than_max_are_capped() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parses_walk_block);
+    RUN_TEST(test_huge_duration_is_clamped);
     RUN_TEST(test_huge_frame_size_is_not_ok);
     RUN_TEST(test_follows_copy_of);
     RUN_TEST(test_missing_walk_is_not_ok);

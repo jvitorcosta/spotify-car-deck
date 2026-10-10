@@ -59,6 +59,14 @@ void test_offset_past_end_is_rejected() {
     TEST_ASSERT_FALSE(montage::parse(b.data(), b.size()));
     TEST_ASSERT_EQUAL_INT(0, montage::count());
 }
+// off + size must not wrap on the ESP32's 32-bit size_t (the cjkfont bug, commit 1717cc7).
+void test_offset_that_wraps_is_rejected() {
+    auto b = blob({{1, 2, 3}});
+    const uint8_t off[4] = {0xF0, 0xFF, 0xFF, 0xFF}, size[4] = {0x20, 0, 0, 0};   // 0xFFFFFFF0 + 0x20
+    memcpy(&b[8], off, 4);
+    memcpy(&b[12], size, 4);
+    TEST_ASSERT_FALSE(montage::parse(b.data(), b.size()));
+}
 void test_truncated_header() {
     auto b = blob({{1}, {2}});
     TEST_ASSERT_FALSE(montage::parse(b.data(), 12));    // index cut off
@@ -78,6 +86,7 @@ int main(int, char**) {
     RUN_TEST(test_empty_montage);
     RUN_TEST(test_bad_magic_is_rejected);
     RUN_TEST(test_offset_past_end_is_rejected);
+    RUN_TEST(test_offset_that_wraps_is_rejected);
     RUN_TEST(test_truncated_header);
     RUN_TEST(test_zero_fps_is_rejected);
     return UNITY_END();

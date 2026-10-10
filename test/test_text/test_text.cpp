@@ -53,6 +53,17 @@ void test_fold_marks_two_letter_folds_have_no_mark() {
     TEST_ASSERT_EQUAL_STRING("AEss", o);
     for (int i = 0; i < 4; ++i) TEST_ASSERT_EQUAL_INT((int)txt::Mark::None, (int)m[i]);
 }
+// Text cut mid-character at a buffer edge (lyric lines, txt::copy) must stop at the terminator,
+// never skip past it. The bytes after the NUL must not show up.
+void test_fold_marks_stops_at_a_cut_character() {
+    const char cut3[] = "ab\xE3" "\0" "XYZ";       // a 3-byte character cut after its lead byte
+    const char cut4[] = "ab\xF0\x9F" "\0" "XYZ";   // a 4-byte character cut after 2 bytes
+    char out[16];
+    txt::foldMarks(cut3, out, nullptr, sizeof out);
+    TEST_ASSERT_EQUAL_STRING("ab", out);
+    txt::foldMarks(cut4, out, nullptr, sizeof out);
+    TEST_ASSERT_EQUAL_STRING("ab", out);
+}
 void test_fold_marks_null_marks_matches_ascii_fold() {
     char a[32], b[32];
     txt::asciiFold("N\xC3\xA3o \xC3\xA9", a, sizeof(a));
@@ -150,6 +161,7 @@ int main(int, char**) {
     RUN_TEST(test_fold_marks_portuguese);
     RUN_TEST(test_fold_marks_upper_and_others);
     RUN_TEST(test_fold_marks_two_letter_folds_have_no_mark);
+    RUN_TEST(test_fold_marks_stops_at_a_cut_character);
     RUN_TEST(test_fold_marks_null_marks_matches_ascii_fold);
     return UNITY_END();
 }
