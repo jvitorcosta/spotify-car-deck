@@ -1,5 +1,6 @@
 #include "greeting.h"
 #include <Arduino.h>
+#include <atomic>
 #include <cstring>
 #include "sink.h"
 #include "../util/loudness.h"
@@ -28,7 +29,8 @@ static const Clip OPENER = {_binary_data_opener_pcm_start,
                             (size_t)(_binary_data_opener_pcm_end - _binary_data_opener_pcm_start) / 2,
                             "opener", &audiosink::GREETING_VOLUME};
 
-static volatile int s_playing = 0;   // clips playing (task alive, audio output open)
+// Clips playing (task alive, audio output open). Atomic: callers on core 1, clip tasks on either core.
+static std::atomic<int> s_playing{0};
 // One clip at a time on the audio output (audiosink's contract): a clip that starts while another
 // still plays waits here instead of colliding with it. Created by the first play*() call (setup()).
 static SemaphoreHandle_t s_output = nullptr;
@@ -41,7 +43,7 @@ static void task(void* arg) {
     const uint32_t t0 = millis();
     if (!audiosink::open(CLIP_RATE)) {
         xSemaphoreGive(s_output);
-        s_playing = s_playing - 1;
+        s_playing.fetch_sub(1);
         vTaskDelete(nullptr);
     }
     int16_t buf[CHUNK];
@@ -59,14 +61,17 @@ static void task(void* arg) {
     Serial.printf("[greeting] %s: played %u samples in ~%u ms (clip %u ms)\n", c->name,
                   (unsigned)c->samples, (unsigned)(millis() - t0),
                   (unsigned)(c->samples * 1000 / CLIP_RATE));
-    s_playing = s_playing - 1;
+    s_playing.fetch_sub(1);
     vTaskDelete(nullptr);
 }
 
 static void start(const Clip* c, const char* name) {
     if (!s_output) s_output = xSemaphoreCreateMutex();
-    s_playing = s_playing + 1;
-    xTaskCreate(task, name, 3072, (void*)c, 1, nullptr);
+    s_playing.fetch_add(1);
+    if (xTaskCreate(task, name, 3072, const_cast<Clip*>(c), 1, nullptr) != pdPASS) {
+        s_playing.fetch_sub(1);              // never started: don't keep the boot scene waiting
+        Serial.printf("[greeting] %s: no memory for its task\n", name);
+    }
 }
 
 void play() { start(&GREETING, "greeting"); }
@@ -85,7 +90,7 @@ uint32_t openerMs() { return OPENER.samples > 1 ? (uint32_t)((uint64_t)OPENER.sa
 
 uint32_t durationMs() { return (uint32_t)((uint64_t)GREETING.samples * 1000 / CLIP_RATE); }
 
-bool playing() { return s_playing > 0; }
+bool playing() { return s_playing.load() > 0; }
 
 uint32_t finaleMs() { return FINALE.samples > 1 ? (uint32_t)((uint64_t)FINALE.samples * 1000 / CLIP_RATE) : 0; }
 

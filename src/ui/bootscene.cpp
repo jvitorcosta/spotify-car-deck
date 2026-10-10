@@ -606,7 +606,10 @@ void start(TFT_eSPI& tft, bool (*online)()) {
     s_tft = &tft;
     s_online = online;
     s_active = true;
-    xTaskCreatePinnedToCore(task, "bootscene", 4096, nullptr, 1, nullptr, 1);
+    if (xTaskCreatePinnedToCore(task, "bootscene", 4096, nullptr, 1, nullptr, 1) != pdPASS) {
+        s_active = false;                   // waitDone() and the net task would wait forever
+        Serial.println("[bootscene] no memory for its task: scene skipped");
+    }
 }
 
 void setCaption(const char* text) {
