@@ -32,3 +32,19 @@ elif DISABLED not in lines:
     # Neither the define nor our patched line: the library changed (lib_deps pins the commit).
     print("patch_spotify_lib: ERROR SPOTIFY_DEBUG line not found in " + header + "; check it by hand")
     env.Exit(1)  # noqa: F821
+
+# The token request bodies go into fixed stack buffers (char body[300]) with sprintf: a longer
+# refresh token would overflow the network task's stack. snprintf truncates instead, and the
+# refresh then fails cleanly. Idempotent.
+source = os.path.join(libdeps, "SpotifyArduino", "src", "SpotifyArduino.cpp")
+with open(source, encoding="utf-8") as f:
+    code = f.read()
+UNSAFE, SAFE = "sprintf(body, ", "snprintf(body, sizeof(body), "
+if UNSAFE in code.replace(SAFE, ""):
+    code = code.replace(SAFE, UNSAFE).replace(UNSAFE, SAFE)
+    with open(source, "w", encoding="utf-8", newline="") as f:
+        f.write(code)
+    print("patch_spotify_lib: body buffers bounded (snprintf)")
+elif SAFE not in code:
+    print("patch_spotify_lib: ERROR sprintf(body, ...) not found in " + source + "; check it by hand")
+    env.Exit(1)  # noqa: F821
