@@ -145,6 +145,15 @@ void test_search_picks_entry_by_duration() {
     TEST_ASSERT_EQUAL_INT((int)Kind::Synced, (int)ex.kind());
     TEST_ASSERT_EQUAL_STRING("right", lyricbuf::lineText(L, 0));
 }
+// LRCLIB's "duration" is range-checked before it becomes milliseconds (a negative or huge
+// double -> uint32_t is UB); such entries never match.
+void test_search_ignores_impossible_durations() {
+    lrcstream::Extractor ex(L, Mode::Search, 1000);
+    feedAll(ex, "[{\"duration\":-1,\"plainLyrics\":\"neg\"},{\"duration\":1e30,\"plainLyrics\":\"huge\"},"
+                "{\"duration\":1.0,\"plainLyrics\":\"ok\"}]");
+    TEST_ASSERT_EQUAL_INT(1, L.n);
+    TEST_ASSERT_EQUAL_STRING("ok", lyricbuf::lineText(L, 0));
+}
 void test_search_tolerance_is_3_seconds() {
     lrcstream::Extractor ex(L, Mode::Search, 189000);
     feedAll(ex, "[{\"duration\":192.5,\"plainLyrics\":\"far\"},{\"duration\":187.43,\"plainLyrics\":\"near\"}]");
@@ -254,6 +263,7 @@ int main(int, char**) {
     RUN_TEST(test_plain_overflow_is_counted_and_truncated);
     RUN_TEST(test_keys_inside_strings_and_nested_objects_are_ignored);
     RUN_TEST(test_search_picks_entry_by_duration);
+    RUN_TEST(test_search_ignores_impossible_durations);
     RUN_TEST(test_search_tolerance_is_3_seconds);
     RUN_TEST(test_search_prefers_a_later_synced_match_over_plain);
     RUN_TEST(test_search_keeps_first_plain_match);

@@ -15,10 +15,15 @@ static bool parseTag(const char* p, const char* end, uint32_t* tMs, const char**
     long mm = strtol(p + 1, &stop, 10);
     if (stop != colon) return false;
     long ss = strtol(colon + 1, &stop, 10);
-    long cs = 0;
-    if (stop < close && *stop == '.') cs = strtol(stop + 1, nullptr, 10);
-    if (mm < 0 || ss < 0 || ss > 59) return false;
-    *tMs = (uint32_t)(mm * 60000 + ss * 1000 + cs * 10);
+    // The text comes from LRCLIB: bound every field before multiplying (no signed overflow).
+    if (mm < 0 || mm > 999 || ss < 0 || ss > 59) return false;
+    uint32_t frac = 0;                    // the fraction in ms: .5 = 500, .50 = 500, .345 = 345
+    if (stop < close && *stop == '.') {
+        uint32_t scale = 100;
+        for (const char* d = stop + 1; d < close && *d >= '0' && *d <= '9' && scale; ++d, scale /= 10)
+            frac += (uint32_t)(*d - '0') * scale;
+    }
+    *tMs = (uint32_t)mm * 60000u + (uint32_t)ss * 1000u + frac;
     *text = close + 1;
     return true;
 }

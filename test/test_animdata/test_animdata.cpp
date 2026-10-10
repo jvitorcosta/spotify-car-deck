@@ -26,6 +26,17 @@ void test_parses_walk_block() {
     TEST_ASSERT_EQUAL_UINT16(8, w.ticks[0]);
     TEST_ASSERT_EQUAL_UINT16(10, w.ticks[3]);
 }
+// Sizes come from GitHub's XML: absurd ones are rejected before the decoder multiplies them.
+void test_huge_frame_size_is_not_ok() {
+    const char* xml =
+        "<Anims><Anim><Name>Walk</Name><FrameWidth>32</FrameWidth><FrameHeight>99999999</FrameHeight>"
+        "<Durations><Duration>8</Duration></Durations></Anim></Anims>";
+    TEST_ASSERT_FALSE(animdata::parseWalk(xml).ok);
+    const char* wide =
+        "<Anims><Anim><Name>Walk</Name><FrameWidth>2147483647</FrameWidth><FrameHeight>40</FrameHeight>"
+        "<Durations><Duration>8</Duration></Durations></Anim></Anims>";
+    TEST_ASSERT_FALSE(animdata::parseWalk(wide).ok);
+}
 void test_follows_copy_of() {
     const char* xml =
         "<Anims><Anim><Name>Idle</Name><FrameWidth>24</FrameWidth><FrameHeight>32</FrameHeight>"
@@ -70,6 +81,7 @@ void test_more_durations_than_max_are_capped() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parses_walk_block);
+    RUN_TEST(test_huge_frame_size_is_not_ok);
     RUN_TEST(test_follows_copy_of);
     RUN_TEST(test_missing_walk_is_not_ok);
     RUN_TEST(test_prefix_name_does_not_match);

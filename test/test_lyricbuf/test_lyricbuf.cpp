@@ -14,6 +14,18 @@ void test_parses_timestamped_lines() {
     TEST_ASSERT_EQUAL_UINT32(3500, L.lines[1].tMs);
     TEST_ASSERT_EQUAL_STRING("world", lyricbuf::lineText(L, 1));
 }
+// Tags come from LRCLIB text: absurd minutes must be rejected, not overflow (UB).
+void test_rejects_huge_minutes() {
+    TEST_ASSERT_EQUAL_INT(1, lyricbuf::parse("[99999999:00.00]huge\n[00:02.00]ok\n", L));
+    TEST_ASSERT_EQUAL_STRING("ok", lyricbuf::lineText(L, 0));
+}
+// The fraction is in its own unit: .5 = 500 ms, .50 = 500 ms, .345 = 345 ms.
+void test_fraction_digits_set_the_unit() {
+    TEST_ASSERT_EQUAL_INT(3, lyricbuf::parse("[00:01.5]a\n[00:02.345]b\n[00:03.50]c\n", L));
+    TEST_ASSERT_EQUAL_UINT32(1500, L.lines[0].tMs);
+    TEST_ASSERT_EQUAL_UINT32(2345, L.lines[1].tMs);
+    TEST_ASSERT_EQUAL_UINT32(3500, L.lines[2].tMs);
+}
 void test_skips_malformed() {
     TEST_ASSERT_EQUAL_INT(1, lyricbuf::parse("garbage\n[00:02.00]ok\n[bad]x\n", L));
     TEST_ASSERT_EQUAL_STRING("ok", lyricbuf::lineText(L, 0));
@@ -114,6 +126,8 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_parses_timestamped_lines);
     RUN_TEST(test_skips_malformed);
+    RUN_TEST(test_rejects_huge_minutes);
+    RUN_TEST(test_fraction_digits_set_the_unit);
     RUN_TEST(test_crlf_and_empty_text);
     RUN_TEST(test_sorts_by_time);
     RUN_TEST(test_current_index);

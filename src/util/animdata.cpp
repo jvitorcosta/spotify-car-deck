@@ -32,7 +32,9 @@ static const char* tagBody(const char* b, const char* e, const char* tag) {
 
 static int tagInt(const char* b, const char* e, const char* tag) {
     const char* p = tagBody(b, e, tag);
-    return p ? atoi(p) : -1;
+    if (!p) return -1;
+    const long v = strtol(p, nullptr, 10);   // atoi overflows (UB) on absurd numbers
+    return v < 0 ? -1 : v > 100000 ? 100000 : (int)v;
 }
 
 static bool tagText(const char* b, const char* e, const char* tag, char* out, size_t n) {
@@ -61,7 +63,9 @@ WalkAnim parseWalk(const char* xml) {
         p += 10;
         w.ticks[w.frames++] = (uint16_t)atoi(p);
     }
-    w.ok = w.frameW > 0 && w.frameH > 0 && w.frames > 0;
+    // From GitHub's XML: absurd sizes would overflow the decoder's row maths (walksprite).
+    w.ok = w.frameW > 0 && w.frameW <= MAX_FRAME_PX && w.frameH > 0 && w.frameH <= MAX_FRAME_PX &&
+           w.frames > 0;
     return w;
 }
 

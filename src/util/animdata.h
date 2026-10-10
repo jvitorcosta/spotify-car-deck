@@ -3,6 +3,7 @@
 // PMDCollab SpriteCollab AnimData.xml -> the "Walk" animation. PURE, host-tested.
 namespace animdata {
 constexpr int MAX_FRAMES = 16;
+constexpr int MAX_FRAME_PX = 512;   // PMD frames are <= ~100 px; larger is bad data
 struct WalkAnim {
     bool ok;
     int frameW, frameH, frames;

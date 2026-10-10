@@ -135,9 +135,14 @@ void Extractor::endLiteral() {
     if (depth_ != objDepth_) return;
     if (keyIs(curKey_, "duration")) {
         double s = strtod(lit_, nullptr);
+        // Range-check before converting: a negative or huge double -> uint32_t is UB.
+        if (!(s > 0 && s < 86400.0)) {
+            objMatch_ = false;
+            return;
+        }
         uint32_t ms = (uint32_t)(s * 1000.0 + 0.5);
         uint32_t d = ms > targetMs_ ? ms - targetMs_ : targetMs_ - ms;
-        objMatch_ = s > 0 && d <= DURATION_TOL_MS;
+        objMatch_ = d <= DURATION_TOL_MS;
         return;
     }
     if (keyIs(curKey_, "instrumental") && strcmp(lit_, "true") == 0 && accepted()) {
