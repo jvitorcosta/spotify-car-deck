@@ -19,15 +19,26 @@ function Deps($file, $seen) {
         }
     }
 }
-$fail = 0; $pass = 0
+$fail = 0; $pass = 0; $failed = @()
 foreach ($t in Get-ChildItem test -Directory) {
     $tf = Get-ChildItem $t.FullName -Filter *.cpp | Select-Object -First 1
+    if (-not $tf) { $fail++; $failed += $t.Name; Write-Host "FAIL $($t.Name): no .cpp in the folder"; continue }
     $seen = New-Object 'System.Collections.Generic.HashSet[string]'
     Deps $tf.FullName $seen
     $mods = @($seen | Where-Object { $_ -like "*.cpp" })
     $o = & $ps -NoProfile -ExecutionPolicy Bypass -File $ntest $tf.FullName @mods 2>&1
-    if ($LASTEXITCODE -eq 0) { $pass++; Write-Host "PASS $($t.Name): $(($o | Select-String 'Tests').Line)" }
-    else { $fail++; Write-Host "FAIL $($t.Name)"; $o | Select-Object -Last 15 }
+    $summary = ($o | Select-String '^\d+ Tests').Line
+    if ($LASTEXITCODE -eq 0 -and $summary -and $summary -notmatch '^0 Tests') {
+        $pass++; Write-Host "PASS $($t.Name): $summary"
+    } else {
+        # The whole output: the first compiler error or the sanitizer report's header is the useful part.
+        $fail++; $failed += $t.Name; Write-Host "FAIL $($t.Name)"; $o | ForEach-Object { Write-Host "  $_" }
+        if ($env:GITHUB_ACTIONS) {   # Unity's file:line:test:FAIL: msg -> inline annotations on the PR
+            foreach ($m in ($o | Select-String '^(.+?):(\d+):(\w+):FAIL:?\s*(.*)$').Matches) {
+                Write-Host "::error file=$($m.Groups[1].Value),line=$($m.Groups[2].Value)::$($m.Groups[3].Value): $($m.Groups[4].Value)"
+            }
+        }
+    }
 }
-Write-Host "suites pass=$pass fail=$fail"
+Write-Host "suites pass=$pass fail=$fail$(if ($failed) { ' (' + ($failed -join ', ') + ')' })"
 exit $fail

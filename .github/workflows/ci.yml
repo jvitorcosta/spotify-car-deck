@@ -2,18 +2,29 @@ name: CI
 
 on:
   push:
-    branches: [main, 'feat/**']
+    branches: [main]
   pull_request:
+
+# A newer push to the same branch/PR cancels the run still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   firmware:
-    name: Firmware build (${{ matrix.env }})
+    name: Firmware (${{ matrix.board }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # both boards and their hardware checks (platformio.ini)
-        env: [cyd, hwcheck, s3, hwcheck_s3]
+        include:
+          # each board's deck and its hardware check; part = app partition size (platformio.ini)
+          - board: cyd
+            envs: -e cyd -e hwcheck
+            part: "0x300000"   # huge_app.csv
+          - board: s3
+            envs: -e s3 -e hwcheck_s3
+            part: "0x800000"   # partitions_s3.csv
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -23,7 +34,7 @@ jobs:
             ~/.platformio/.cache
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+          key: ${{ runner.os }}-pio-${{ matrix.board }}-${{ hashFiles('platformio.ini') }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -31,11 +42,15 @@ jobs:
         run: pip install platformio==6.2.0
       - name: Stub config (the real src/config.h is git-ignored)
         run: cp include/config.example.h src/config.h
+      - name: Media stand-ins at the real sizes (the media are git-ignored)
+        run: python tools/media_sizes.py placeholders
       - name: Build
-        run: pio run -e ${{ matrix.env }}
+        run: pio run ${{ matrix.envs }}
+      - name: Flash size check
+        run: python tools/check_flash.py .pio/build/${{ matrix.board }}/firmware.bin ${{ matrix.part }} 97
 
   host-tests:
-    name: Host unit tests (Unity + g++)
+    name: Host unit tests (Unity + g++, sanitizers, 64- and 32-bit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,10 +63,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install PlatformIO and Unity
+      - name: Install PlatformIO, Unity and 32-bit g++
         run: |
           pip install platformio==6.2.0
-          pio pkg install -e native -l throwtheswitch/Unity
-      - name: Run all suites
+          pio pkg install -e native -l throwtheswitch/Unity@2.6.0
+          sudo apt-get update && sudo apt-get install -y g++-multilib
+      - name: Run all suites (64-bit, ASan + UBSan)
         shell: pwsh
+        run: ./tools/run_tests.ps1
+      - name: Run all suites (32-bit like the ESP32's size_t, sanitizers off)
+        shell: pwsh
+        env:
+          NTEST_FLAGS: -m32
+          NTEST_SAN: "0"
         run: ./tools/run_tests.ps1

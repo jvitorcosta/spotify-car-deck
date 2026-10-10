@@ -1,0 +1,5 @@
+# Real sizes of the git-ignored media (tools/media_sizes.py record)
+greeting.pcm 203200
+opener.pcm 27100
+finale.pcm 120762
+montage.bin 722205

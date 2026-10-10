@@ -79,7 +79,7 @@ montage ends on an end card: the logo on white with a thin red frame, fading in 
 
 - Host unit tests (Unity, compiled with g++ because `pio test -e native` doesn't work for this
   layout): `powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1`. Needs g++ on PATH
-  (or `$env:MINGW_BIN`) and Unity once: `pio pkg install -e native -l throwtheswitch/Unity`.
+  (or `$env:MINGW_BIN`) and Unity once: `pio pkg install -e native -l throwtheswitch/Unity@2.6.0`.
   One suite: `tools\ntest.ps1 test\<suite>\<suite>.cpp <module.cpp ...>`.
 - Generated, committed data (re-run only to update): Pokédex `python tools/gen_dex.py`,
   status sprite `python tools/gen_status_sprite.py [dex]`, CJK font
@@ -90,7 +90,27 @@ montage ends on an end card: the logo on white with a thin red frame, fading in 
   `python tools/analyze_session.py session.log` (step timings, per-track arrival times,
   byte RAM, failed allocations, TLS errors, restarts).
 - `tools/patch_spotify_lib.py` runs before every build: it turns off the Spotify library's
-  debug mode, which would print the refresh token and client secret over serial.
+  debug mode, which would print the refresh token and client secret over serial, and bounds its
+  token request buffers.
+- Flash budget: CI builds with stand-ins at your media's real sizes and fails above 97 % of the
+  app partition. After changing your clips or montage run `python tools/media_sizes.py record`
+  and commit `data/media_sizes.txt` (sizes only; the media stay git-ignored).
+- CI (`.github/workflows/ci.yml`): both boards' firmware + hardware checks with the flash check,
+  and the host suites with ASan/UBSan and again as 32-bit (`-m32`, like the ESP32's `size_t`).
+
+### What a test must earn
+
+- A test earns its place when a plausible change would make it fail **and** the failure points
+  at a real problem: behaviour a user or another module relies on, a past bug, a bound, a wrap.
+- Test properties, not tuning: colours, art pixels, easing midpoints and copy text change on
+  purpose — assert invariants (contrast, monotonicity, endpoints, fits-in-box). Exact values only
+  where they are the contract (parser output, wire formats, bit-exact encoders).
+- Every parser of outside data (HTTP, XML, JSON, blobs) gets a cut-off input, an absurd number
+  and an offset that would wrap on 32 bits.
+- Every timer comparison gets a `millis()` wrap test; every fixed buffer a test at its limit and
+  one past it.
+- One table-driven test per rule, not one test per row; don't assert the same thing twice.
+- No tests for constants, getters or one-line ternaries — a `static_assert` if a constant matters.
 
 ## Architecture
 
