@@ -2,13 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
 
 jobs:
   firmware:
-    name: Firmware build (esp32dev)
+    name: Firmware build (${{ matrix.env }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # both boards and their hardware checks (platformio.ini)
+        env: [cyd, hwcheck, s3, hwcheck_s3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -16,18 +21,18 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install PlatformIO
-        run: pip install --upgrade platformio
+        run: pip install platformio==6.2.0
       - name: Stub config (the real src/config.h is git-ignored)
         run: cp include/config.example.h src/config.h
-      - name: Build firmware
-        run: pio run -e esp32dev
-      - name: Build hardware check
-        run: pio run -e hwcheck
+      - name: Build
+        run: pio run -e ${{ matrix.env }}
 
   host-tests:
     name: Host unit tests (Unity + g++)
@@ -45,7 +50,7 @@ jobs:
           python-version: "3.12"
       - name: Install PlatformIO and Unity
         run: |
-          pip install --upgrade platformio
+          pip install platformio==6.2.0
           pio pkg install -e native -l throwtheswitch/Unity
       - name: Run all suites
         shell: pwsh

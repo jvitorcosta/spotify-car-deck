@@ -5,7 +5,10 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wshadow"   // the library's TS_Point ctor; src/ builds with -Werror
 #include <XPT2046_Touchscreen.h>
+#pragma GCC diagnostic pop
 #include "pins.h"
 
 static TFT_eSPI s_tft = TFT_eSPI();

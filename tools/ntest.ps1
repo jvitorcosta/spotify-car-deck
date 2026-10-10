@@ -25,7 +25,9 @@ if (-not (Get-Command g++ -ErrorAction SilentlyContinue)) {
 }
 if ($args.Count -lt 1) { Write-Host "Usage: ntest.ps1 <test.cpp> [module.cpp ...]"; exit 2 }
 $out = Join-Path ([IO.Path]::GetTempPath()) ("ntest_" + [IO.Path]::GetFileNameWithoutExtension($args[0]) + ".exe")
-$ccargs = @("-std=gnu++17", "-I", $unity) + $args + @((Join-Path $unity "unity.c"), "-o", $out)
+$ccargs = @("-std=gnu++17", "-Wall", "-Wextra", "-Wshadow", "-Werror", "-I", $unity) + $args + @((Join-Path $unity "unity.c"), "-o", $out)
+# On Linux (CI) the sanitizers come free: undefined behaviour and memory errors fail the suite.
+if ($IsLinux) { $ccargs += @("-g", "-fsanitize=address,undefined,float-cast-overflow", "-fno-sanitize-recover=all") }
 & g++ @ccargs
 if ($LASTEXITCODE -ne 0) { Write-Host "COMPILE FAILED"; exit 1 }
 & $out
